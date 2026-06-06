@@ -176,13 +176,9 @@ function drawCushions(ctx, dims) {
     ctx.lineTo(Nhi.x, Nhi.y);
     ctx.lineTo(Mhi.x, Mhi.y);
     ctx.closePath();
-    const rm = { x: (Mlo.x + Mhi.x) / 2, y: (Mlo.y + Mhi.y) / 2 };
-    const nm = { x: (Nlo.x + Nhi.x) / 2, y: (Nlo.y + Nhi.y) / 2 };
-    const g = ctx.createLinearGradient(rm.x, rm.y, nm.x, nm.y);
-    g.addColorStop(0, '#0b4327');   // dark at the rail base
-    g.addColorStop(0.55, '#1f8a4f');
-    g.addColorStop(1, '#3bc673');   // bright crest at the nose
-    ctx.fillStyle = g;
+    // Flat cushion colour (no strong gradient) so the rails read straight/square,
+    // not rounded. Edge definition comes from the thin highlight/shadow below.
+    ctx.fillStyle = '#1c8a4f';
     ctx.fill();
     ctx.restore();
 
