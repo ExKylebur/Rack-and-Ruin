@@ -2,7 +2,7 @@
 // + state.warp). No hardcoded pocket positions; the cache invalidates whenever
 // pockets move or the table warps, so Move Hole / Warp Rail repaint correctly.
 
-import { playArea, pocketLayout, cushions, unitsFor } from '../geometry.js';
+import { playArea, pocketLayout, unitsFor, CUSHION_NOSE_FRAC } from '../geometry.js';
 
 let _cache = { canvas: null, key: '' };
 
@@ -147,49 +147,78 @@ function drawPocketHole(ctx, p) {
   ctx.fill();
 }
 
-// Cushion noses inset slightly into the play area, ending a gap short of each
-// pocket. Top and bottom rails are split by the side pocket.
-// Cushions are drawn on EXACTLY the spans physics bounces off (railSpans), so the
-// bumpers are the functional rebound surface, not decoration. Each cushion is a
-// trapezoid: full width at the rail, tapering toward the pockets at the nose, with
-// a bright nose highlight on the bed-facing (bounce) edge.
+// Cushions, drawn to match a real table: chunky green bumpers whose bed-facing
+// nose runs close to each pocket, with an angled FACING cut at the pocket (corner
+// jaws ~142 deg, side jaws ~104 deg). The pocket holes are painted on top, so they
+// carve the mouth. (The physics funnel lives in geometry.cushions(); this is the
+// visual, kept deliberately full-bodied so bumpers don't look starved next to the
+// holes.)
 function drawCushions(ctx, dims) {
-  for (const piece of cushions(dims).list) drawCushionPiece(ctx, piece);
+  const pa = playArea(dims);
+  const u = unitsFor(dims);
+  const pkt = pocketLayout(dims);
+  const P = {}; pkt.forEach((p) => { P[p.label] = p; });
+  const cd = u.cushion * CUSHION_NOSE_FRAC;    // match the physics bounce-line depth
+  const runC = cd / Math.tan((180 - 142) * Math.PI / 180); // corner facing run (~1.3*cd)
+  const runS = cd / Math.tan((180 - 104) * Math.PI / 180); // side facing run (~0.25*cd)
+  const mnC = u.pocketR * 0.30;   // how close the nose runs to a corner pocket
+  const mnS = u.sidePocketR * 0.45;
+
+  const endOf = (p) => (p.r === u.sidePocketR ? { mn: mnS, run: runS } : { mn: mnC, run: runC });
+  const span = (orient, railC, bedC, loP, hiP) => {
+    const lo = endOf(loP), hi = endOf(hiP);
+    const aLo = orient === 'h' ? loP.x : loP.y;
+    const aHi = orient === 'h' ? hiP.x : hiP.y;
+    const mk = (a, c) => (orient === 'h' ? { x: a, y: c } : { x: c, y: a });
+    const noseLo = mk(aLo + lo.mn, bedC);
+    const railLo = mk(aLo + lo.mn + lo.run, railC);
+    const noseHi = mk(aHi - hi.mn, bedC);
+    const railHi = mk(aHi - hi.mn - hi.run, railC);
+    drawCushionPoly(ctx, railLo, noseLo, noseHi, railHi, railC, bedC, orient);
+  };
+
+  span('h', pa.top, pa.top + cd, P.TL, P.TM);
+  span('h', pa.top, pa.top + cd, P.TM, P.TR);
+  span('h', pa.bottom, pa.bottom - cd, P.BL, P.BM);
+  span('h', pa.bottom, pa.bottom - cd, P.BM, P.BR);
+  span('v', pa.left, pa.left + cd, P.TL, P.BL);
+  span('v', pa.right, pa.right - cd, P.TR, P.BR);
 }
 
-// Draw one cushion from its shared geometry: the filled body, a shadow cast onto
-// the bed, and a bright crest along the bed-facing faces (the exact lines physics
-// bounces off — jaw, nose, jaw).
-function drawCushionPiece(ctx, c) {
-  // poly = [N_lo, N_hi, R_hi, R_lo]; nose pts are [0],[1], rail pts [2],[3].
-  const Nlo = c.poly[0], Nhi = c.poly[1];
-  const railA = c.poly[2], railB = c.poly[3];
+function drawCushionPoly(ctx, railLo, noseLo, noseHi, railHi, railC, bedC, orient) {
   ctx.save();
   ctx.beginPath();
-  ctx.moveTo(c.poly[0].x, c.poly[0].y);
-  for (let i = 1; i < c.poly.length; i++) ctx.lineTo(c.poly[i].x, c.poly[i].y);
+  ctx.moveTo(railLo.x, railLo.y);
+  ctx.lineTo(noseLo.x, noseLo.y);
+  ctx.lineTo(noseHi.x, noseHi.y);
+  ctx.lineTo(railHi.x, railHi.y);
   ctx.closePath();
-  const railMid = { x: (railA.x + railB.x) / 2, y: (railA.y + railB.y) / 2 };
-  const noseMid = { x: (Nlo.x + Nhi.x) / 2, y: (Nlo.y + Nhi.y) / 2 };
-  const g = ctx.createLinearGradient(railMid.x, railMid.y, noseMid.x, noseMid.y);
+  const g = orient === 'h'
+    ? ctx.createLinearGradient(0, railC, 0, bedC)
+    : ctx.createLinearGradient(railC, 0, bedC, 0);
   g.addColorStop(0, '#0b4327');   // recessed at the rail
-  g.addColorStop(0.6, '#1f8a4f');
-  g.addColorStop(1, '#37bd6d');   // bright crest at the nose
+  g.addColorStop(0.55, '#1f8a4f');
+  g.addColorStop(1, '#3bc673');   // bright crest at the nose
   ctx.fillStyle = g;
   ctx.fill();
+  // shadow the raised nose casts onto the bed
+  const sign = Math.sign(bedC - railC);
+  ctx.strokeStyle = 'rgba(0,0,0,0.22)';
+  ctx.lineWidth = 3;
+  ctx.beginPath();
+  if (orient === 'h') { ctx.moveTo(noseLo.x, noseLo.y + sign * 2); ctx.lineTo(noseHi.x, noseHi.y + sign * 2); }
+  else { ctx.moveTo(noseLo.x + sign * 2, noseLo.y); ctx.lineTo(noseHi.x + sign * 2, noseHi.y); }
+  ctx.stroke();
+  // bright crest along the bed-facing edges (nose + the two angled facings)
+  ctx.strokeStyle = 'rgba(205,255,215,0.55)';
+  ctx.lineWidth = 1.4;
+  ctx.beginPath();
+  ctx.moveTo(railLo.x, railLo.y);
+  ctx.lineTo(noseLo.x, noseLo.y);
+  ctx.lineTo(noseHi.x, noseHi.y);
+  ctx.lineTo(railHi.x, railHi.y);
+  ctx.stroke();
   ctx.restore();
-
-  const edge = (off, style, lw) => {
-    ctx.strokeStyle = style; ctx.lineWidth = lw;
-    ctx.beginPath();
-    c.faces.forEach((s, i) => {
-      if (i === 0) ctx.moveTo(s.x1 + s.nx * off, s.y1 + s.ny * off);
-      ctx.lineTo(s.x2 + s.nx * off, s.y2 + s.ny * off);
-    });
-    ctx.stroke();
-  };
-  edge(2.4, 'rgba(0,0,0,0.20)', 3);        // shadow onto the bed
-  edge(0, 'rgba(200,255,210,0.55)', 1.4);  // crest highlight on the bounce faces
 }
 
 function drawDiamonds(ctx, w, h, pa, u) {

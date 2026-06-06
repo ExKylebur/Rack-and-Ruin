@@ -69,7 +69,7 @@ test('cue transfers motion to a target ball and records first hit', () => {
 });
 
 test('a ball rebounds off the cushion nose, inset from the felt edge', () => {
-  const nose = CU.list[0].faces[0]; // top-left span: the straight nose face
+  const nose = CU.list[0].faces[1]; // top-left span: the straight nose face
   const x = (nose.x1 + nose.x2) / 2;
   const noseY = nose.y1; // = PA.top + nose depth
   const b = { num: 2, x, y: PA.top + 90, vx: 0, vy: -8, r: BASE_BALL_R, size: 1, pocketed: false, roll: 0 };
@@ -82,27 +82,28 @@ test('a ball rebounds off the cushion nose, inset from the felt edge', () => {
   assert.ok(expected > PA.top + b.r + 2, 'nose line is genuinely inset from the felt edge');
 });
 
-test('the cushion nose is flat and clipped short of the pockets', () => {
-  const span = CU.list[0];        // top-left span (TL -> TM)
-  const nose = span.faces[0];
+test('cushion jaws are angled faces that funnel toward the pocket', () => {
+  const span = CU.list[0];           // top-left span
+  const cornerJaw = span.faces[0];   // Mlo -> Nlo, by the corner pocket
+  const nose = span.faces[1];        // Nlo -> Nhi
   assert.ok(Math.abs(nose.y1 - nose.y2) < 1e-6, 'nose runs parallel to the rail');
-  assert.ok(nose.ny > 0.9, 'nose normal points straight into the bed');
-  // the nose stops well inside the corner pocket, leaving an open mouth
-  assert.ok(nose.x1 > PA.left + BASE_BALL_R, 'nose is clipped away from the corner');
+  assert.ok(Math.abs(cornerJaw.x1 - cornerJaw.x2) > 1 && Math.abs(cornerJaw.y1 - cornerJaw.y2) > 1,
+    'corner jaw is slanted in both axes (not flat)');
+  assert.ok(cornerJaw.ny > 0.05, 'jaw normal pushes the ball off the rail into the bed');
 });
 
 test('a ball rolling along the rail into a corner is funneled in, not bounced back', () => {
   const pockets = pocketsFor({ movedPockets: {} });
-  const nose = CU.list[0].faces[0];
+  const nose = CU.list[0].faces[1];
   // start just off the nose near the corner end, rolling toward the corner pocket
   const b = {
-    num: 0, x: nose.x1 + 4, y: nose.y1 + BASE_BALL_R + 1,
+    num: 0, x: nose.x1 + 6, y: nose.y1 + BASE_BALL_R + 1,
     vx: -7, vy: 0, r: BASE_BALL_R, size: 1, pocketed: false, roll: 0,
   };
   const sim = [b];
   const turn = freshTurn();
   runToRest(sim, pockets, turn, 600);
-  assert.ok(b.pocketed && turn.pocketed.includes(0), 'rail-runner dropped into the corner pocket');
+  assert.ok(b.pocketed && turn.pocketed.includes(0), 'jaw guided the ball into the corner pocket');
 });
 
 test('a ball aimed at a pocket mouth passes the cushion and drops', () => {

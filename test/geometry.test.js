@@ -7,7 +7,6 @@ import {
   pocketLayout,
   toPx,
   toRel,
-  CUSHION_NOSE_FRAC,
 } from '../src/geometry.js';
 
 const approx = (a, b, eps = 1e-6) => Math.abs(a - b) <= eps;
@@ -66,17 +65,17 @@ test('rel<->px round trips within the play area', () => {
 test('pocketLayout: 6 pockets at corners + side midpoints by default', () => {
   const dims = { w: 1000, h: 540 };
   const pa = playArea(dims);
-  const u = unitsFor(dims);
-  const ins = u.cushion * CUSHION_NOSE_FRAC, insS = ins;
   const pk = pocketLayout(dims);
   assert.equal(pk.length, 6);
-  // corners are inset diagonally into the mouth
-  assert.ok(approx(pk[0].x, pa.left + ins) && approx(pk[0].y, pa.top + ins), 'TL');
-  assert.ok(approx(pk[2].x, pa.right - ins) && approx(pk[2].y, pa.top + ins), 'TR');
-  assert.ok(approx(pk[5].x, pa.right - ins) && approx(pk[5].y, pa.bottom - ins), 'BR');
-  // side pockets stay centred on the rail, inset slightly into the bed
-  assert.ok(approx(pk[1].x, pa.cx) && approx(pk[1].y, pa.top + insS), 'TM');
-  assert.ok(approx(pk[4].x, pa.cx) && approx(pk[4].y, pa.bottom - insS), 'BM');
+  // corners
+  assert.ok(approx(pk[0].x, pa.left) && approx(pk[0].y, pa.top), 'TL');
+  assert.ok(approx(pk[2].x, pa.right) && approx(pk[2].y, pa.top), 'TR');
+  assert.ok(approx(pk[5].x, pa.right) && approx(pk[5].y, pa.bottom), 'BR');
+  // side midpoints
+  assert.ok(approx(pk[1].x, pa.cx) && approx(pk[1].y, pa.top), 'TM');
+  assert.ok(approx(pk[4].x, pa.cx) && approx(pk[4].y, pa.bottom), 'BM');
+  // side pockets are the larger radius
+  const u = unitsFor(dims);
   assert.ok(approx(pk[1].r, u.sidePocketR) && approx(pk[0].r, u.pocketR));
 });
 
@@ -87,8 +86,7 @@ test('pocketLayout: a moved pocket overrides its default position', () => {
   const center = toPx({ u: 0.5, v: 0.5 }, dims);
   assert.ok(approx(pk[0].x, center.x) && approx(pk[0].y, center.y), 'moved to centre');
   assert.equal(pk[0].moved, true);
-  // unmoved pockets keep their (inset) default position
+  // unmoved pockets keep defaults
   const pa = playArea(dims);
-  const ins = unitsFor(dims).cushion * CUSHION_NOSE_FRAC;
-  assert.ok(approx(pk[2].x, pa.right - ins) && approx(pk[2].y, pa.top + ins));
+  assert.ok(approx(pk[2].x, pa.right) && approx(pk[2].y, pa.top));
 });
