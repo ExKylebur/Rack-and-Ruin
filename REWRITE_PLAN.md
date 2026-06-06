@@ -110,7 +110,7 @@ renormalize on resize (current approach, fragile).
 |-------|---------|--------|
 | 0 | Test harness + scaffolding so we can TDD pure modules | ☑ done (`6fe8b11`, `01c08a0`) |
 | 1 | **Looks like pool**: render-from-state, correct pocket geometry, scaling that tracks canvas, Move Hole visibly moves | ☑ done (`cbb4eef`) — verified in browser |
-| 1b | **Playable solo**: physics.js + input + shot loop wired into app.js (no cards yet) | ☐ next |
+| 1b | **Playable solo**: physics.js + input + shot loop wired into app.js (no cards yet) | ☑ done (`79642bc`) — verified in browser |
 | 2 | **Cards work**: card-phase player fix, all appliers pure + visually correct (big/small ball, open pocket, warp render) | ☐ |
 | 3 | **Rules clean**: variant evaluators extracted + unit-tested (8/9/cutthroat/doubles) | ☐ |
 | 4 | **Online works**: threaded server, client push-on-change + long-poll wired, resolution-independent sync, reconnect | ☐ |
