@@ -44,16 +44,31 @@ function buildTableLayer(state) {
   cv.height = Math.max(1, Math.round(h));
   const ctx = cv.getContext('2d');
 
-  // --- 1. Cloth: the whole surface (rails + bed) is green felt -----------
-  const cloth = ctx.createRadialGradient(w * 0.5, h * 0.5, w * 0.06, w * 0.5, h * 0.5, w * 0.62);
-  cloth.addColorStop(0, '#2faf66');
-  cloth.addColorStop(0.55, '#1d8049');
-  cloth.addColorStop(1, '#135e36');
-  ctx.fillStyle = cloth;
+  // --- 1. Wooden rails fill the whole border --------------------------------
+  const wood = ctx.createLinearGradient(0, 0, w, h);
+  wood.addColorStop(0, '#6b4427');
+  wood.addColorStop(0.5, '#874f29');
+  wood.addColorStop(1, '#492a13');
+  ctx.fillStyle = wood;
   ctx.fillRect(0, 0, w, h);
-
-  // subtle bed weave + sheen, clipped to the play area
   ctx.save();
+  ctx.globalAlpha = 0.10;
+  for (let y = 0; y < h; y += 3) {
+    ctx.fillStyle = `rgba(255,216,168,${0.02 + (Math.sin(y * 0.09) + 1) * 0.012})`;
+    ctx.fillRect(0, y, w, 1);
+  }
+  ctx.restore();
+  ctx.strokeStyle = 'rgba(255,225,180,0.18)'; ctx.lineWidth = 2; ctx.strokeRect(1, 1, w - 2, h - 2);
+  ctx.strokeStyle = 'rgba(0,0,0,0.5)'; ctx.lineWidth = 2; ctx.strokeRect(w - 1.5, h - 1.5, 0, 0);
+
+  // --- 2. Green felt bed inside the play area -------------------------------
+  ctx.save();
+  const felt = ctx.createRadialGradient(w * 0.5, h * 0.5, w * 0.06, w * 0.5, h * 0.5, w * 0.55);
+  felt.addColorStop(0, '#2faf66');
+  felt.addColorStop(0.55, '#1d8049');
+  felt.addColorStop(1, '#135e36');
+  ctx.fillStyle = felt;
+  ctx.fillRect(pa.left, pa.top, pa.w, pa.h);
   ctx.beginPath();
   ctx.rect(pa.left, pa.top, pa.w, pa.h);
   ctx.clip();
@@ -71,17 +86,17 @@ function buildTableLayer(state) {
     ctx.fillRect(nx, ny, 1, 1);
   }
   ctx.restore();
+  // shadow where the wooden rail meets the bed
+  ctx.strokeStyle = 'rgba(0,0,0,0.35)'; ctx.lineWidth = 3;
+  ctx.strokeRect(pa.left, pa.top, pa.w, pa.h);
 
-  // --- 2. Wooden cabinet frame around the outside ------------------------
-  drawWoodFrame(ctx, w, h, u.cushion * 0.34);
-
-  // --- 3. Cushions: raised green bumpers with jaws that funnel pockets ---
+  // --- 3. Cushions: green bumpers on the bed edge, angled into the pockets ---
   drawCushions(ctx, state.dims);
 
-  // --- 4. Pocket holes (on top, so the cushion jaws meet the mouth) ------
+  // --- 4. Pocket holes (set into the rail at the corners / side midpoints) --
   pockets.forEach((p) => drawPocketHole(ctx, p));
 
-  // --- 5. Rail diamonds + table markings ---------------------------------
+  // --- 5. Rail diamonds + table markings ------------------------------------
   drawDiamonds(ctx, w, h, pa, u);
   drawMarkings(ctx, pa);
 
