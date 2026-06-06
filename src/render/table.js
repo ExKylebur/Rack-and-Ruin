@@ -2,7 +2,7 @@
 // + state.warp). No hardcoded pocket positions; the cache invalidates whenever
 // pockets move or the table warps, so Move Hole / Warp Rail repaint correctly.
 
-import { playArea, pocketLayout, railSpans, unitsFor } from '../geometry.js';
+import { playArea, pocketLayout, cushions, unitsFor } from '../geometry.js';
 
 let _cache = { canvas: null, key: '' };
 
@@ -154,56 +154,42 @@ function drawPocketHole(ctx, p) {
 // trapezoid: full width at the rail, tapering toward the pockets at the nose, with
 // a bright nose highlight on the bed-facing (bounce) edge.
 function drawCushions(ctx, dims) {
-  const pa = playArea(dims);
-  const rs = railSpans(dims);
-  const nose = rs.nose;
-  rs.top.spans.forEach(([a, b]) => cushion(ctx, 'h', a, b, pa.top, pa.top + nose));
-  rs.bottom.spans.forEach(([a, b]) => cushion(ctx, 'h', a, b, pa.bottom, pa.bottom - nose));
-  rs.left.spans.forEach(([a, b]) => cushion(ctx, 'v', a, b, pa.left, pa.left + nose));
-  rs.right.spans.forEach(([a, b]) => cushion(ctx, 'v', a, b, pa.right, pa.right - nose));
+  for (const piece of cushions(dims).list) drawCushionPiece(ctx, piece);
 }
 
-// orient 'h': rail runs horizontally; `along` is x, `railPos`/`bedPos` are y.
-// orient 'v': rail runs vertically;   `along` is y, `railPos`/`bedPos` are x.
-function cushion(ctx, orient, a0, a1, railPos, bedPos) {
-  if (a1 - a0 <= 0) return;
-  const depth = Math.abs(bedPos - railPos);
-  const chamf = Math.min(depth * 1.7, (a1 - a0) * 0.42); // long jaw angling into the pocket
-  const sign = Math.sign(bedPos - railPos);              // bed direction from the rail
-
-  // a straight line at coordinate `pos` from `from` to `to` along the rail
-  const line = (pos, from, to, style, lw) => {
-    ctx.strokeStyle = style; ctx.lineWidth = lw;
-    ctx.beginPath();
-    if (orient === 'h') { ctx.moveTo(from, pos); ctx.lineTo(to, pos); }
-    else { ctx.moveTo(pos, from); ctx.lineTo(pos, to); }
-    ctx.stroke();
-  };
-
-  // body: a trapezoid wide at the rail, tapering at the jaws toward the pockets
+// Draw one cushion from its shared geometry: the filled body, a shadow cast onto
+// the bed, and a bright crest along the bed-facing faces (the exact lines physics
+// bounces off — jaw, nose, jaw).
+function drawCushionPiece(ctx, c) {
+  const [Mlo, Nlo, Nhi, Mhi] = c.poly;
   ctx.save();
   ctx.beginPath();
-  if (orient === 'h') {
-    ctx.moveTo(a0, railPos); ctx.lineTo(a1, railPos);
-    ctx.lineTo(a1 - chamf, bedPos); ctx.lineTo(a0 + chamf, bedPos);
-  } else {
-    ctx.moveTo(railPos, a0); ctx.lineTo(railPos, a1);
-    ctx.lineTo(bedPos, a1 - chamf); ctx.lineTo(bedPos, a0 + chamf);
-  }
+  ctx.moveTo(Mlo.x, Mlo.y);
+  ctx.lineTo(Nlo.x, Nlo.y);
+  ctx.lineTo(Nhi.x, Nhi.y);
+  ctx.lineTo(Mhi.x, Mhi.y);
   ctx.closePath();
-  const g = orient === 'h'
-    ? ctx.createLinearGradient(0, railPos, 0, bedPos)
-    : ctx.createLinearGradient(railPos, 0, bedPos, 0);
-  g.addColorStop(0, '#0b4327');   // dark, recessed at the rail
+  const railMid = { x: (Mlo.x + Mhi.x) / 2, y: (Mlo.y + Mhi.y) / 2 };
+  const noseMid = { x: (Nlo.x + Nhi.x) / 2, y: (Nlo.y + Nhi.y) / 2 };
+  const g = ctx.createLinearGradient(railMid.x, railMid.y, noseMid.x, noseMid.y);
+  g.addColorStop(0, '#0b4327');   // recessed at the rail
   g.addColorStop(0.6, '#1f8a4f');
-  g.addColorStop(1, '#37bd6d');   // bright rounded crest at the nose
+  g.addColorStop(1, '#37bd6d');   // bright crest at the nose
   ctx.fillStyle = g;
   ctx.fill();
   ctx.restore();
 
-  // shadow the raised nose casts onto the bed, then the bright crest on top
-  line(bedPos + sign * 2.5, a0 + chamf, a1 - chamf, 'rgba(0,0,0,0.20)', 3);
-  line(bedPos, a0 + chamf, a1 - chamf, 'rgba(200,255,210,0.55)', 1.4);
+  const edge = (off, style, lw) => {
+    ctx.strokeStyle = style; ctx.lineWidth = lw;
+    ctx.beginPath();
+    c.faces.forEach((s, i) => {
+      if (i === 0) ctx.moveTo(s.x1 + s.nx * off, s.y1 + s.ny * off);
+      ctx.lineTo(s.x2 + s.nx * off, s.y2 + s.ny * off);
+    });
+    ctx.stroke();
+  };
+  edge(2.4, 'rgba(0,0,0,0.20)', 3);        // shadow onto the bed
+  edge(0, 'rgba(200,255,210,0.55)', 1.4);  // crest highlight on the bounce faces
 }
 
 function drawDiamonds(ctx, w, h, pa, u) {

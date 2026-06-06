@@ -4,12 +4,12 @@
 // every machine simulates a shot identically — the basis for online play
 // (Decision D2: shooter simulates, then broadcasts the settled state).
 
-import { fitCanvas, playArea, pocketLayout, railSpans, toPx, toRel, unitsFor } from './geometry.js';
+import { fitCanvas, playArea, pocketLayout, cushions, toPx, toRel, unitsFor } from './geometry.js';
 
 const CANON = fitCanvas(1000, 1e9);
 const PA = playArea(CANON);
 const U = unitsFor(CANON);
-const RS = railSpans(CANON);
+const FACES = cushions(CANON).list.flatMap((c) => c.faces); // angled cushion faces
 
 export const BASE_BALL_R = U.ballR;
 export const FRICTION = 0.986;     // velocity retained per frame
@@ -47,26 +47,32 @@ export function applyShot(sim, power, angle) {
   cue.vy = Math.sin(angle) * power * MAX_SHOT_SPEED;
 }
 
-const inSpan = (val, spans) => spans.some(([a, c]) => val >= a && val <= c);
+// Bounce a ball off one cushion face (a line segment with inward normal). The
+// closest-point test means corners/jaw tips deflect correctly, so a ball glancing
+// a jaw is funneled toward the pocket instead of rebounding flat.
+function collideFace(b, s) {
+  const dx = s.x2 - s.x1, dy = s.y2 - s.y1;
+  const len2 = dx * dx + dy * dy || 1;
+  let t = ((b.x - s.x1) * dx + (b.y - s.y1) * dy) / len2;
+  t = t < 0 ? 0 : t > 1 ? 1 : t;
+  const px = s.x1 + t * dx, py = s.y1 + t * dy;
+  let ox = b.x - px, oy = b.y - py;
+  const d = Math.hypot(ox, oy);
+  if (d >= b.r) return;
+  let nx, ny;
+  if (d > 1e-6) { nx = ox / d; ny = oy / d; } else { nx = s.nx; ny = s.ny; }
+  b.x = px + nx * b.r; b.y = py + ny * b.r;            // push out of the cushion
+  const vn = b.vx * nx + b.vy * ny;
+  if (vn < 0) {                                         // moving into the face
+    b.vx = (b.vx - vn * nx) * TANG_DAMP - WALL_DAMP * vn * nx;
+    b.vy = (b.vy - vn * ny) * TANG_DAMP - WALL_DAMP * vn * ny;
+  }
+}
 
 function railBounce(b) {
-  // Primary bounce: off the cushion nose, but only where a cushion actually is
-  // (not across a pocket mouth) — so balls aimed at a pocket pass through.
-  if (b.vx < 0 && b.x - b.r < RS.left.x && inSpan(b.y, RS.left.spans)) {
-    b.x = RS.left.x + b.r; b.vx = Math.abs(b.vx) * WALL_DAMP; b.vy *= TANG_DAMP;
-  }
-  if (b.vx > 0 && b.x + b.r > RS.right.x && inSpan(b.y, RS.right.spans)) {
-    b.x = RS.right.x - b.r; b.vx = -Math.abs(b.vx) * WALL_DAMP; b.vy *= TANG_DAMP;
-  }
-  if (b.vy < 0 && b.y - b.r < RS.top.y && inSpan(b.x, RS.top.spans)) {
-    b.y = RS.top.y + b.r; b.vy = Math.abs(b.vy) * WALL_DAMP; b.vx *= TANG_DAMP;
-  }
-  if (b.vy > 0 && b.y + b.r > RS.bottom.y && inSpan(b.x, RS.bottom.spans)) {
-    b.y = RS.bottom.y - b.r; b.vy = -Math.abs(b.vy) * WALL_DAMP; b.vx *= TANG_DAMP;
-  }
-
-  // Backstop: a hard wall at the felt edge so a ball that enters a pocket mouth
-  // but isn't captured rattles back instead of escaping into the rail/wood.
+  for (const s of FACES) collideFace(b, s);
+  // Backstop net at the felt edge: a ball that entered a pocket mouth but wasn't
+  // captured rattles back instead of escaping into the rail/wood.
   if (b.x - b.r < PA.left)   { b.x = PA.left + b.r;   if (b.vx < 0) b.vx = -b.vx * WALL_DAMP; }
   if (b.x + b.r > PA.right)  { b.x = PA.right - b.r;  if (b.vx > 0) b.vx = -b.vx * WALL_DAMP; }
   if (b.y - b.r < PA.top)    { b.y = PA.top + b.r;    if (b.vy < 0) b.vy = -b.vy * WALL_DAMP; }

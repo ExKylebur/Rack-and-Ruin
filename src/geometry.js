@@ -66,26 +66,67 @@ export function toRel(pt, dims) {
 
 // How far the cushion nose protrudes onto the bed, as a fraction of cushion width.
 export const CUSHION_NOSE_FRAC = 0.42;
+// Real cushion cut angles at the pockets (degrees of rail/cushion facing).
+export const CORNER_CUT_DEG = 142;
+export const SIDE_CUT_DEG = 104;
 
-// The cushions as bounce lines + the spans they cover, with open gaps at the six
-// pocket mouths. Physics bounces balls off these lines; render draws the noses on
-// exactly the same spans, so the bumpers can never be merely cosmetic.
-//   - top/bottom: bounce on a horizontal line (y), covering two x-spans
-//     (left and right of the side pocket).
-//   - left/right: bounce on a vertical line (x), covering one y-span.
-export function railSpans(dims) {
+// The cushions as a set of straight bed-facing FACES: each rail span has a flat
+// nose plus an angled jaw at each end that funnels the ball into the pocket
+// (corner jaws cut at 142°, side jaws at 104°). Physics bounces off these faces
+// and render draws the same polygons, so the funnel geometry is shared — no more
+// flat rebound near the pockets.
+//
+// Returns { nose, list: [{ poly:[{x,y}*4], faces:[{x1,y1,x2,y2,nx,ny}*3] }] }
+// where `poly` is the cushion outline (for drawing) and `faces` are the three
+// bed-facing segments (jaw, nose, jaw) with inward unit normals (for physics).
+export function cushions(dims) {
   const pa = playArea(dims);
   const u = unitsFor(dims);
   const nose = u.cushion * CUSHION_NOSE_FRAC;
-  const cg = u.pocketR * 1.5;        // corner mouth half-width along a rail
-  const sg = u.sidePocketR * 1.35;   // side-pocket mouth half-width
-  return {
-    nose,
-    top:    { y: pa.top + nose,    spans: [[pa.left + cg, pa.cx - sg], [pa.cx + sg, pa.right - cg]] },
-    bottom: { y: pa.bottom - nose, spans: [[pa.left + cg, pa.cx - sg], [pa.cx + sg, pa.right - cg]] },
-    left:   { x: pa.left + nose,   spans: [[pa.top + cg, pa.bottom - cg]] },
-    right:  { x: pa.right - nose,  spans: [[pa.top + cg, pa.bottom - cg]] },
+  const mhCorner = u.pocketR * 0.75;     // facing meets the rail this far from a corner pocket
+  const mhSide = u.sidePocketR * 0.65;   // ...and this far from a side pocket
+  const devCorner = (180 - CORNER_CUT_DEG) * Math.PI / 180; // jaw deviation from the rail
+  const devSide = (180 - SIDE_CUT_DEG) * Math.PI / 180;
+  const runCorner = nose / Math.tan(devCorner); // along-rail run of the jaw
+  const runSide = nose / Math.tan(devSide);
+  const cx = pa.cx, cy = pa.cy;
+
+  const pt = (orient, along, coord) => (orient === 'h' ? { x: along, y: coord } : { x: coord, y: along });
+  // normal of p1->p2, oriented to point AWAY from the cushion body (toward the
+  // bed) by flipping it away from the piece centroid.
+  const seg = (p1, p2, ctr) => {
+    let nx = -(p2.y - p1.y), ny = p2.x - p1.x;
+    const L = Math.hypot(nx, ny) || 1; nx /= L; ny /= L;
+    const mx = (p1.x + p2.x) / 2, my = (p1.y + p2.y) / 2;
+    if ((mx - ctr.x) * nx + (my - ctr.y) * ny < 0) { nx = -nx; ny = -ny; }
+    return { x1: p1.x, y1: p1.y, x2: p2.x, y2: p2.y, nx, ny };
   };
+
+  function span(orient, railC, noseC, lo, hi) {
+    const loMh = lo.type === 'corner' ? mhCorner : mhSide;
+    const loRun = lo.type === 'corner' ? runCorner : runSide;
+    const hiMh = hi.type === 'corner' ? mhCorner : mhSide;
+    const hiRun = hi.type === 'corner' ? runCorner : runSide;
+    const Mlo = pt(orient, lo.along + loMh, railC);
+    const Nlo = pt(orient, lo.along + loMh + loRun, noseC);
+    const Nhi = pt(orient, hi.along - hiMh - hiRun, noseC);
+    const Mhi = pt(orient, hi.along - hiMh, railC);
+    const poly = [Mlo, Nlo, Nhi, Mhi];
+    const ctr = poly.reduce((a, p) => ({ x: a.x + p.x / 4, y: a.y + p.y / 4 }), { x: 0, y: 0 });
+    return { poly, faces: [seg(Mlo, Nlo, ctr), seg(Nlo, Nhi, ctr), seg(Nhi, Mhi, ctr)] };
+  }
+
+  const corner = (along) => ({ along, type: 'corner' });
+  const side = (along) => ({ along, type: 'side' });
+  const list = [
+    span('h', pa.top, pa.top + nose, corner(pa.left), side(cx)),
+    span('h', pa.top, pa.top + nose, side(cx), corner(pa.right)),
+    span('h', pa.bottom, pa.bottom - nose, corner(pa.left), side(cx)),
+    span('h', pa.bottom, pa.bottom - nose, side(cx), corner(pa.right)),
+    span('v', pa.left, pa.left + nose, corner(pa.top), corner(pa.bottom)),
+    span('v', pa.right, pa.right - nose, corner(pa.top), corner(pa.bottom)),
+  ];
+  return { nose, list };
 }
 
 // The six pockets in pixels. `moved` maps pocketIndex -> {u,v} for any pocket
