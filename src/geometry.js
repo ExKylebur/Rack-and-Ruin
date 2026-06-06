@@ -65,7 +65,7 @@ export function toRel(pt, dims) {
 }
 
 // How far the cushion nose protrudes onto the bed, as a fraction of cushion width.
-export const CUSHION_NOSE_FRAC = 0.42;
+export const CUSHION_NOSE_FRAC = 0.5;
 // Real cushion cut angles at the pockets (degrees of rail/cushion facing).
 export const CORNER_CUT_DEG = 142;
 export const SIDE_CUT_DEG = 104;
@@ -83,17 +83,12 @@ export function cushions(dims) {
   const pa = playArea(dims);
   const u = unitsFor(dims);
   const nose = u.cushion * CUSHION_NOSE_FRAC;
-  const mhCorner = u.pocketR * 0.75;     // facing meets the rail this far from a corner pocket
-  const mhSide = u.sidePocketR * 0.65;   // ...and this far from a side pocket
-  const devCorner = (180 - CORNER_CUT_DEG) * Math.PI / 180; // jaw deviation from the rail
-  const devSide = (180 - SIDE_CUT_DEG) * Math.PI / 180;
-  const runCorner = nose / Math.tan(devCorner); // along-rail run of the jaw
-  const runSide = nose / Math.tan(devSide);
-  const cx = pa.cx, cy = pa.cy;
+  const pk = pocketLayout(dims); // inset pockets (drop-points in the mouths)
+  const P = {}; pk.forEach((p) => { P[p.label] = p; });
 
-  const pt = (orient, along, coord) => (orient === 'h' ? { x: along, y: coord } : { x: coord, y: along });
-  // normal of p1->p2, oriented to point AWAY from the cushion body (toward the
-  // bed) by flipping it away from the piece centroid.
+  const alongOf = (orient, p) => (orient === 'h' ? p.x : p.y);
+  const crossOf = (orient, p) => (orient === 'h' ? p.y : p.x);
+  const mk = (orient, a, c) => (orient === 'h' ? { x: a, y: c } : { x: c, y: a });
   const seg = (p1, p2, ctr) => {
     let nx = -(p2.y - p1.y), ny = p2.x - p1.x;
     const L = Math.hypot(nx, ny) || 1; nx /= L; ny /= L;
@@ -102,29 +97,29 @@ export function cushions(dims) {
     return { x1: p1.x, y1: p1.y, x2: p2.x, y2: p2.y, nx, ny };
   };
 
-  function span(orient, railC, noseC, lo, hi) {
-    const loMh = lo.type === 'corner' ? mhCorner : mhSide;
-    const loRun = lo.type === 'corner' ? runCorner : runSide;
-    const hiMh = hi.type === 'corner' ? mhCorner : mhSide;
-    const hiRun = hi.type === 'corner' ? runCorner : runSide;
-    const Mlo = pt(orient, lo.along + loMh, railC);
-    const Nlo = pt(orient, lo.along + loMh + loRun, noseC);
-    const Nhi = pt(orient, hi.along - hiMh - hiRun, noseC);
-    const Mhi = pt(orient, hi.along - hiMh, railC);
-    const poly = [Mlo, Nlo, Nhi, Mhi];
+  // The cushion's bed-facing NOSE is a straight bar between the two pockets, with
+  // each end clipped where it meets the (inset) pocket circle. The round holes are
+  // drawn on top, carving the angled "mouth". Physics bounces off the nose; balls
+  // aimed at a pocket reach the inset drop-point and fall in instead of bouncing.
+  function span(orient, railC, noseC, loP, hiP) {
+    const offAt = (p, lineC) => Math.sqrt(Math.max(0, p.r * p.r - (lineC - crossOf(orient, p)) ** 2));
+    const aLo = alongOf(orient, loP), aHi = alongOf(orient, hiP);
+    const Nlo = mk(orient, aLo + offAt(loP, noseC), noseC);
+    const Nhi = mk(orient, aHi - offAt(hiP, noseC), noseC);
+    const Rlo = mk(orient, aLo + offAt(loP, railC), railC);
+    const Rhi = mk(orient, aHi - offAt(hiP, railC), railC);
+    const poly = [Nlo, Nhi, Rhi, Rlo];
     const ctr = poly.reduce((a, p) => ({ x: a.x + p.x / 4, y: a.y + p.y / 4 }), { x: 0, y: 0 });
-    return { poly, faces: [seg(Mlo, Nlo, ctr), seg(Nlo, Nhi, ctr), seg(Nhi, Mhi, ctr)] };
+    return { poly, faces: [seg(Nlo, Nhi, ctr)] };
   }
 
-  const corner = (along) => ({ along, type: 'corner' });
-  const side = (along) => ({ along, type: 'side' });
   const list = [
-    span('h', pa.top, pa.top + nose, corner(pa.left), side(cx)),
-    span('h', pa.top, pa.top + nose, side(cx), corner(pa.right)),
-    span('h', pa.bottom, pa.bottom - nose, corner(pa.left), side(cx)),
-    span('h', pa.bottom, pa.bottom - nose, side(cx), corner(pa.right)),
-    span('v', pa.left, pa.left + nose, corner(pa.top), corner(pa.bottom)),
-    span('v', pa.right, pa.right - nose, corner(pa.top), corner(pa.bottom)),
+    span('h', pa.top, pa.top + nose, P.TL, P.TM),
+    span('h', pa.top, pa.top + nose, P.TM, P.TR),
+    span('h', pa.bottom, pa.bottom - nose, P.BL, P.BM),
+    span('h', pa.bottom, pa.bottom - nose, P.BM, P.BR),
+    span('v', pa.left, pa.left + nose, P.TL, P.BL),
+    span('v', pa.right, pa.right - nose, P.TR, P.BR),
   ];
   return { nose, list };
 }
@@ -134,13 +129,20 @@ export function cushions(dims) {
 export function pocketLayout(dims, moved = {}) {
   const pa = playArea(dims);
   const u = unitsFor(dims);
+  // Pocket drop-points sit at the inner cushion corner (one nose-depth into the
+  // bed), where the cushion mouths actually open. A ball hugging the rail rides at
+  // depth ~nose+ballR, so the capture point must be this deep or the cushions wall
+  // the ball out of the corner before it can drop.
+  const nose = u.cushion * CUSHION_NOSE_FRAC;
+  const ins = nose;   // corner inset, along each axis
+  const insS = nose;  // side-pocket inset into the bed
   const defaults = [
-    { x: pa.left, y: pa.top, r: u.pocketR, label: 'TL' },
-    { x: pa.cx, y: pa.top, r: u.sidePocketR, label: 'TM' },
-    { x: pa.right, y: pa.top, r: u.pocketR, label: 'TR' },
-    { x: pa.left, y: pa.bottom, r: u.pocketR, label: 'BL' },
-    { x: pa.cx, y: pa.bottom, r: u.sidePocketR, label: 'BM' },
-    { x: pa.right, y: pa.bottom, r: u.pocketR, label: 'BR' },
+    { x: pa.left + ins, y: pa.top + ins, r: u.pocketR, label: 'TL' },
+    { x: pa.cx, y: pa.top + insS, r: u.sidePocketR, label: 'TM' },
+    { x: pa.right - ins, y: pa.top + ins, r: u.pocketR, label: 'TR' },
+    { x: pa.left + ins, y: pa.bottom - ins, r: u.pocketR, label: 'BL' },
+    { x: pa.cx, y: pa.bottom - insS, r: u.sidePocketR, label: 'BM' },
+    { x: pa.right - ins, y: pa.bottom - ins, r: u.pocketR, label: 'BR' },
   ];
   return defaults.map((d, i) => {
     if (moved[i]) {

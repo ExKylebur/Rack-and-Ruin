@@ -161,15 +161,15 @@ function drawCushions(ctx, dims) {
 // the bed, and a bright crest along the bed-facing faces (the exact lines physics
 // bounces off — jaw, nose, jaw).
 function drawCushionPiece(ctx, c) {
-  const [Mlo, Nlo, Nhi, Mhi] = c.poly;
+  // poly = [N_lo, N_hi, R_hi, R_lo]; nose pts are [0],[1], rail pts [2],[3].
+  const Nlo = c.poly[0], Nhi = c.poly[1];
+  const railA = c.poly[2], railB = c.poly[3];
   ctx.save();
   ctx.beginPath();
-  ctx.moveTo(Mlo.x, Mlo.y);
-  ctx.lineTo(Nlo.x, Nlo.y);
-  ctx.lineTo(Nhi.x, Nhi.y);
-  ctx.lineTo(Mhi.x, Mhi.y);
+  ctx.moveTo(c.poly[0].x, c.poly[0].y);
+  for (let i = 1; i < c.poly.length; i++) ctx.lineTo(c.poly[i].x, c.poly[i].y);
   ctx.closePath();
-  const railMid = { x: (Mlo.x + Mhi.x) / 2, y: (Mlo.y + Mhi.y) / 2 };
+  const railMid = { x: (railA.x + railB.x) / 2, y: (railA.y + railB.y) / 2 };
   const noseMid = { x: (Nlo.x + Nhi.x) / 2, y: (Nlo.y + Nhi.y) / 2 };
   const g = ctx.createLinearGradient(railMid.x, railMid.y, noseMid.x, noseMid.y);
   g.addColorStop(0, '#0b4327');   // recessed at the rail
