@@ -4,11 +4,12 @@
 // every machine simulates a shot identically — the basis for online play
 // (Decision D2: shooter simulates, then broadcasts the settled state).
 
-import { fitCanvas, playArea, pocketLayout, toPx, toRel, unitsFor } from './geometry.js';
+import { fitCanvas, playArea, pocketLayout, railSpans, toPx, toRel, unitsFor } from './geometry.js';
 
 const CANON = fitCanvas(1000, 1e9);
 const PA = playArea(CANON);
 const U = unitsFor(CANON);
+const RS = railSpans(CANON);
 
 export const BASE_BALL_R = U.ballR;
 export const FRICTION = 0.986;     // velocity retained per frame
@@ -46,11 +47,30 @@ export function applyShot(sim, power, angle) {
   cue.vy = Math.sin(angle) * power * MAX_SHOT_SPEED;
 }
 
+const inSpan = (val, spans) => spans.some(([a, c]) => val >= a && val <= c);
+
 function railBounce(b) {
-  if (b.x - b.r < PA.left)  { b.x = PA.left + b.r;  b.vx = Math.abs(b.vx) * WALL_DAMP;  b.vy *= TANG_DAMP; }
-  if (b.x + b.r > PA.right) { b.x = PA.right - b.r; b.vx = -Math.abs(b.vx) * WALL_DAMP; b.vy *= TANG_DAMP; }
-  if (b.y - b.r < PA.top)   { b.y = PA.top + b.r;   b.vy = Math.abs(b.vy) * WALL_DAMP;  b.vx *= TANG_DAMP; }
-  if (b.y + b.r > PA.bottom){ b.y = PA.bottom - b.r;b.vy = -Math.abs(b.vy) * WALL_DAMP; b.vx *= TANG_DAMP; }
+  // Primary bounce: off the cushion nose, but only where a cushion actually is
+  // (not across a pocket mouth) — so balls aimed at a pocket pass through.
+  if (b.vx < 0 && b.x - b.r < RS.left.x && inSpan(b.y, RS.left.spans)) {
+    b.x = RS.left.x + b.r; b.vx = Math.abs(b.vx) * WALL_DAMP; b.vy *= TANG_DAMP;
+  }
+  if (b.vx > 0 && b.x + b.r > RS.right.x && inSpan(b.y, RS.right.spans)) {
+    b.x = RS.right.x - b.r; b.vx = -Math.abs(b.vx) * WALL_DAMP; b.vy *= TANG_DAMP;
+  }
+  if (b.vy < 0 && b.y - b.r < RS.top.y && inSpan(b.x, RS.top.spans)) {
+    b.y = RS.top.y + b.r; b.vy = Math.abs(b.vy) * WALL_DAMP; b.vx *= TANG_DAMP;
+  }
+  if (b.vy > 0 && b.y + b.r > RS.bottom.y && inSpan(b.x, RS.bottom.spans)) {
+    b.y = RS.bottom.y - b.r; b.vy = -Math.abs(b.vy) * WALL_DAMP; b.vx *= TANG_DAMP;
+  }
+
+  // Backstop: a hard wall at the felt edge so a ball that enters a pocket mouth
+  // but isn't captured rattles back instead of escaping into the rail/wood.
+  if (b.x - b.r < PA.left)   { b.x = PA.left + b.r;   if (b.vx < 0) b.vx = -b.vx * WALL_DAMP; }
+  if (b.x + b.r > PA.right)  { b.x = PA.right - b.r;  if (b.vx > 0) b.vx = -b.vx * WALL_DAMP; }
+  if (b.y - b.r < PA.top)    { b.y = PA.top + b.r;    if (b.vy < 0) b.vy = -b.vy * WALL_DAMP; }
+  if (b.y + b.r > PA.bottom) { b.y = PA.bottom - b.r; if (b.vy > 0) b.vy = -b.vy * WALL_DAMP; }
 }
 
 function pocketCheck(b, pockets, turn) {

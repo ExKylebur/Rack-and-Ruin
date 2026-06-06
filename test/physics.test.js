@@ -1,10 +1,15 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createGameState, rackBalls } from '../src/state.js';
+import { fitCanvas, playArea, railSpans } from '../src/geometry.js';
 import {
   makeSim, pocketsFor, freshTurn, applyShot, step, runToRest,
   BASE_BALL_R, MIN_SPEED,
 } from '../src/physics.js';
+
+const CANON = fitCanvas(1000, 1e9);
+const PA = playArea(CANON);
+const RS = railSpans(CANON);
 
 function freshState() {
   const s = createGameState();
@@ -61,6 +66,28 @@ test('cue transfers motion to a target ball and records first hit', () => {
   assert.equal(turn.firstHit, 3, 'first object ball hit is the 3');
   assert.ok(obj.vx > 1, 'target ball gained forward velocity');
   assert.ok(cue.vx < 10, 'cue ball slowed');
+});
+
+test('a ball rebounds off the cushion nose, inset from the felt edge', () => {
+  // within a top cushion span, driven straight up; no pockets to isolate the rail
+  const x = (RS.top.spans[0][0] + RS.top.spans[0][1]) / 2;
+  const b = { num: 2, x, y: PA.top + 90, vx: 0, vy: -8, r: BASE_BALL_R, size: 1, pocketed: false, roll: 0 };
+  const sim = [b];
+  const turn = freshTurn();
+  for (let i = 0; i < 300 && b.vy <= 0; i++) step(sim, [], 1, turn);
+  assert.ok(b.vy > 0, 'rebounded');
+  const expected = RS.top.y + b.r; // nose line, NOT PA.top + r (the felt/wood edge)
+  assert.ok(Math.abs(b.y - expected) < 2.5, `bounced at nose ${b.y.toFixed(1)} ~ ${expected.toFixed(1)}`);
+  assert.ok(expected > PA.top + b.r + 2, 'nose line is genuinely inset from the felt edge');
+});
+
+test('a ball aimed at a pocket mouth passes the cushion and drops', () => {
+  const pockets = pocketsFor({ movedPockets: {} });
+  const b = { num: 0, x: PA.left + (PA.right - PA.left) / 2, y: PA.top + 120, vx: 0, vy: -10, r: BASE_BALL_R, size: 1, pocketed: false, roll: 0 };
+  const sim = [b];
+  const turn = freshTurn();
+  runToRest(sim, pockets, turn, 500);
+  assert.ok(b.pocketed, 'dropped into the side pocket through the open mouth');
 });
 
 test('a near head-on equal-mass hit transfers most speed to the target', () => {

@@ -64,6 +64,30 @@ export function toRel(pt, dims) {
   return { u: (pt.x - pa.left) / pa.w, v: (pt.y - pa.top) / pa.h };
 }
 
+// How far the cushion nose protrudes onto the bed, as a fraction of cushion width.
+export const CUSHION_NOSE_FRAC = 0.42;
+
+// The cushions as bounce lines + the spans they cover, with open gaps at the six
+// pocket mouths. Physics bounces balls off these lines; render draws the noses on
+// exactly the same spans, so the bumpers can never be merely cosmetic.
+//   - top/bottom: bounce on a horizontal line (y), covering two x-spans
+//     (left and right of the side pocket).
+//   - left/right: bounce on a vertical line (x), covering one y-span.
+export function railSpans(dims) {
+  const pa = playArea(dims);
+  const u = unitsFor(dims);
+  const nose = u.cushion * CUSHION_NOSE_FRAC;
+  const cg = u.pocketR * 1.5;        // corner mouth half-width along a rail
+  const sg = u.sidePocketR * 1.35;   // side-pocket mouth half-width
+  return {
+    nose,
+    top:    { y: pa.top + nose,    spans: [[pa.left + cg, pa.cx - sg], [pa.cx + sg, pa.right - cg]] },
+    bottom: { y: pa.bottom - nose, spans: [[pa.left + cg, pa.cx - sg], [pa.cx + sg, pa.right - cg]] },
+    left:   { x: pa.left + nose,   spans: [[pa.top + cg, pa.bottom - cg]] },
+    right:  { x: pa.right - nose,  spans: [[pa.top + cg, pa.bottom - cg]] },
+  };
+}
+
 // The six pockets in pixels. `moved` maps pocketIndex -> {u,v} for any pocket
 // relocated by the Move Hole card; unlisted pockets keep their default spot.
 export function pocketLayout(dims, moved = {}) {

@@ -2,7 +2,7 @@
 // + state.warp). No hardcoded pocket positions; the cache invalidates whenever
 // pockets move or the table warps, so Move Hole / Warp Rail repaint correctly.
 
-import { playArea, pocketLayout, unitsFor } from '../geometry.js';
+import { playArea, pocketLayout, railSpans, unitsFor } from '../geometry.js';
 
 let _cache = { canvas: null, key: '' };
 
@@ -104,8 +104,8 @@ function buildTableLayer(state) {
   });
   ctx.restore();
 
-  // --- 4. Cushion noses (raised bumpers, broken at the pockets) ----------
-  drawCushions(ctx, pa, u, pockets);
+  // --- 4. Cushion noses (the actual bounce surface, open at the pockets) -
+  drawCushions(ctx, state.dims);
 
   // --- 5. Rail diamonds + table markings ---------------------------------
   drawDiamonds(ctx, w, h, pa, u);
@@ -141,42 +141,59 @@ function drawPocketHole(ctx, p) {
 
 // Cushion noses inset slightly into the play area, ending a gap short of each
 // pocket. Top and bottom rails are split by the side pocket.
-function drawCushions(ctx, pa, u, pockets) {
-  const t = u.cushion * 0.42;          // nose thickness
-  const gap = u.pocketR * 1.15;        // clearance from a pocket centre
-  const noseFill = (x1, y1, x2, y2) => {
-    const g = ctx.createLinearGradient(x1, y1, x2, y2);
-    g.addColorStop(0, '#0e5a34');
-    g.addColorStop(0.5, '#1f8a4f');
-    g.addColorStop(1, '#0c4427');
-    return g;
-  };
-  // pocket x/y by label for gap maths
-  const P = {}; pockets.forEach((p) => { P[p.label] = p; });
-
-  // top: two segments (left & right of the middle pocket)
-  bar(ctx, P.TL.x + gap, pa.top, P.TM.x - gap, pa.top + t, noseFill);
-  bar(ctx, P.TM.x + gap, pa.top, P.TR.x - gap, pa.top + t, noseFill);
-  // bottom
-  bar(ctx, P.BL.x + gap, pa.bottom - t, P.BM.x - gap, pa.bottom, noseFill);
-  bar(ctx, P.BM.x + gap, pa.bottom - t, P.BR.x - gap, pa.bottom, noseFill);
-  // left & right (single segment each)
-  bar(ctx, pa.left, P.TL.y + gap, pa.left + t, P.BL.y - gap, noseFill);
-  bar(ctx, pa.right - t, P.TR.y + gap, pa.right, P.BR.y - gap, noseFill);
+// Cushions are drawn on EXACTLY the spans physics bounces off (railSpans), so the
+// bumpers are the functional rebound surface, not decoration. Each cushion is a
+// trapezoid: full width at the rail, tapering toward the pockets at the nose, with
+// a bright nose highlight on the bed-facing (bounce) edge.
+function drawCushions(ctx, dims) {
+  const pa = playArea(dims);
+  const rs = railSpans(dims);
+  const nose = rs.nose;
+  rs.top.spans.forEach(([a, b]) => cushion(ctx, 'h', a, b, pa.top, pa.top + nose));
+  rs.bottom.spans.forEach(([a, b]) => cushion(ctx, 'h', a, b, pa.bottom, pa.bottom - nose));
+  rs.left.spans.forEach(([a, b]) => cushion(ctx, 'v', a, b, pa.left, pa.left + nose));
+  rs.right.spans.forEach(([a, b]) => cushion(ctx, 'v', a, b, pa.right, pa.right - nose));
 }
 
-function bar(ctx, x1, y1, x2, y2, fillFor) {
-  const x = Math.min(x1, x2), y = Math.min(y1, y2);
-  const wd = Math.abs(x2 - x1), ht = Math.abs(y2 - y1);
-  if (wd <= 0 || ht <= 0) return;
-  ctx.fillStyle = fillFor(x1, y1, x2, y2);
+// orient 'h': rail runs horizontally; `along` is x, `railPos`/`bedPos` are y.
+// orient 'v': rail runs vertically;   `along` is y, `railPos`/`bedPos` are x.
+function cushion(ctx, orient, a0, a1, railPos, bedPos) {
+  if (a1 - a0 <= 0) return;
+  const chamf = Math.min(Math.abs(bedPos - railPos), (a1 - a0) / 2);
+  ctx.save();
   ctx.beginPath();
-  if (ctx.roundRect) ctx.roundRect(x, y, wd, ht, Math.min(wd, ht) * 0.35);
-  else ctx.rect(x, y, wd, ht);
+  if (orient === 'h') {
+    ctx.moveTo(a0, railPos);
+    ctx.lineTo(a1, railPos);
+    ctx.lineTo(a1 - chamf, bedPos);
+    ctx.lineTo(a0 + chamf, bedPos);
+  } else {
+    ctx.moveTo(railPos, a0);
+    ctx.lineTo(railPos, a1);
+    ctx.lineTo(bedPos, a1 - chamf);
+    ctx.lineTo(bedPos, a0 + chamf);
+  }
+  ctx.closePath();
+  const g = orient === 'h'
+    ? ctx.createLinearGradient(0, railPos, 0, bedPos)
+    : ctx.createLinearGradient(railPos, 0, bedPos, 0);
+  g.addColorStop(0, '#0c4628');   // dark where it meets the rail
+  g.addColorStop(0.7, '#1f8a4f');
+  g.addColorStop(1, '#34b86a');   // bright rounded nose
+  ctx.fillStyle = g;
   ctx.fill();
-  // top highlight on the nose
-  ctx.fillStyle = 'rgba(176,255,176,0.14)';
-  ctx.fillRect(x, y, wd, Math.max(1, ht * 0.18));
+  // crisp highlight along the bounce edge
+  ctx.strokeStyle = 'rgba(190,255,200,0.5)';
+  ctx.lineWidth = 1.4;
+  ctx.beginPath();
+  if (orient === 'h') { ctx.moveTo(a0 + chamf, bedPos); ctx.lineTo(a1 - chamf, bedPos); }
+  else { ctx.moveTo(bedPos, a0 + chamf); ctx.lineTo(bedPos, a1 - chamf); }
+  ctx.stroke();
+  // soft shadow the nose casts onto the bed
+  ctx.strokeStyle = 'rgba(0,0,0,0.22)';
+  ctx.lineWidth = 2.5;
+  ctx.stroke();
+  ctx.restore();
 }
 
 function drawDiamonds(ctx, w, h, pa, u) {
