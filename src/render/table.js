@@ -44,50 +44,27 @@ function buildTableLayer(state) {
   cv.height = Math.max(1, Math.round(h));
   const ctx = cv.getContext('2d');
 
-  // --- 1. Rail / frame: warm wood with a subtle grain --------------------
-  const wood = ctx.createLinearGradient(0, 0, w, h);
-  wood.addColorStop(0, '#3a210f');
-  wood.addColorStop(0.46, '#6f4526');
-  wood.addColorStop(1, '#2a1709');
-  ctx.fillStyle = wood;
+  // --- 1. Cloth: the whole surface (rails + bed) is green felt -----------
+  const cloth = ctx.createRadialGradient(w * 0.5, h * 0.5, w * 0.06, w * 0.5, h * 0.5, w * 0.62);
+  cloth.addColorStop(0, '#2faf66');
+  cloth.addColorStop(0.55, '#1d8049');
+  cloth.addColorStop(1, '#135e36');
+  ctx.fillStyle = cloth;
   ctx.fillRect(0, 0, w, h);
-  ctx.save();
-  for (let y = 0; y < h; y += 3) {
-    ctx.fillStyle = `rgba(255,214,164,${0.015 + (Math.sin(y * 0.09) + 1) * 0.012})`;
-    ctx.fillRect(0, y + Math.sin(y * 0.23 + 1.9) * 0.5, w, 1);
-  }
-  ctx.restore();
-  // bevel edges
-  ctx.fillStyle = 'rgba(250,220,156,0.18)';
-  ctx.fillRect(0, 0, w, 2); ctx.fillRect(0, 0, 2, h);
-  ctx.fillStyle = 'rgba(0,0,0,0.5)';
-  ctx.fillRect(0, h - 2, w, 2); ctx.fillRect(w - 2, 0, 2, h);
 
-  // --- 2. Pocket holes (drawn BENEATH the felt) --------------------------
-  pockets.forEach((p) => drawPocketHole(ctx, p));
-
-  // --- 3. Felt over the play rectangle, then carve the pockets out -------
-  ctx.save();
-  const felt = ctx.createRadialGradient(w * 0.5, h * 0.5, w * 0.08, w * 0.5, h * 0.5, w * 0.62);
-  felt.addColorStop(0, '#2db367');
-  felt.addColorStop(0.52, '#1d7f49');
-  felt.addColorStop(1, '#0f4a2c');
-  ctx.fillStyle = felt;
-  ctx.fillRect(pa.left, pa.top, pa.w, pa.h);
-
-  // weave + sheen, clipped to the play rect
+  // subtle bed weave + sheen, clipped to the play area
   ctx.save();
   ctx.beginPath();
   ctx.rect(pa.left, pa.top, pa.w, pa.h);
   ctx.clip();
   const sheen = ctx.createLinearGradient(pa.left, pa.top, pa.right, pa.bottom);
-  sheen.addColorStop(0, 'rgba(255,255,255,0.07)');
+  sheen.addColorStop(0, 'rgba(255,255,255,0.06)');
   sheen.addColorStop(0.5, 'rgba(255,255,255,0)');
-  sheen.addColorStop(1, 'rgba(0,0,0,0.16)');
+  sheen.addColorStop(1, 'rgba(0,0,0,0.14)');
   ctx.fillStyle = sheen;
   ctx.fillRect(pa.left, pa.top, pa.w, pa.h);
-  ctx.globalAlpha = 0.08;
-  for (let i = 0; i < 520; i++) {
+  ctx.globalAlpha = 0.06;
+  for (let i = 0; i < 700; i++) {
     const nx = pa.left + ((i * 73) % pa.w);
     const ny = pa.top + ((i * 97) % pa.h);
     ctx.fillStyle = i % 2 === 0 ? '#fff' : '#000';
@@ -95,23 +72,54 @@ function buildTableLayer(state) {
   }
   ctx.restore();
 
-  // carve the pocket mouths out of the felt so holes read as openings
-  ctx.globalCompositeOperation = 'destination-out';
-  pockets.forEach((p) => {
-    ctx.beginPath();
-    ctx.arc(p.x, p.y, p.r, 0, Math.PI * 2);
-    ctx.fill();
-  });
-  ctx.restore();
+  // --- 2. Wooden cabinet frame around the outside ------------------------
+  drawWoodFrame(ctx, w, h, u.cushion * 0.34);
 
-  // --- 4. Cushion noses (the actual bounce surface, open at the pockets) -
+  // --- 3. Cushions: raised green bumpers with jaws that funnel pockets ---
   drawCushions(ctx, state.dims);
+
+  // --- 4. Pocket holes (on top, so the cushion jaws meet the mouth) ------
+  pockets.forEach((p) => drawPocketHole(ctx, p));
 
   // --- 5. Rail diamonds + table markings ---------------------------------
   drawDiamonds(ctx, w, h, pa, u);
   drawMarkings(ctx, pa);
 
   return cv;
+}
+
+// A brown wooden cabinet frame as a border ring around the outer edge.
+function drawWoodFrame(ctx, w, h, t) {
+  ctx.save();
+  const wood = ctx.createLinearGradient(0, 0, w, h);
+  wood.addColorStop(0, '#5d3c1f');
+  wood.addColorStop(0.5, '#7d5230');
+  wood.addColorStop(1, '#3e2712');
+  ctx.fillStyle = wood;
+  ctx.beginPath();
+  ctx.rect(0, 0, w, h);
+  ctx.rect(t, t, w - 2 * t, h - 2 * t);
+  ctx.fill('evenodd');
+  // faint grain on the frame
+  ctx.save();
+  ctx.beginPath();
+  ctx.rect(0, 0, w, h);
+  ctx.rect(t, t, w - 2 * t, h - 2 * t);
+  ctx.clip('evenodd');
+  ctx.globalAlpha = 0.10;
+  for (let y = 0; y < h; y += 3) {
+    ctx.fillStyle = `rgba(255,216,168,${0.02 + (Math.sin(y * 0.09) + 1) * 0.012})`;
+    ctx.fillRect(0, y, w, 1);
+  }
+  ctx.restore();
+  // outer highlight + inner shadow where the frame meets the cloth
+  ctx.strokeStyle = 'rgba(255,220,170,0.22)';
+  ctx.lineWidth = 2;
+  ctx.strokeRect(1, 1, w - 2, h - 2);
+  ctx.strokeStyle = 'rgba(0,0,0,0.4)';
+  ctx.lineWidth = 2;
+  ctx.strokeRect(t, t, w - 2 * t, h - 2 * t);
+  ctx.restore();
 }
 
 function drawPocketHole(ctx, p) {
@@ -159,41 +167,43 @@ function drawCushions(ctx, dims) {
 // orient 'v': rail runs vertically;   `along` is y, `railPos`/`bedPos` are x.
 function cushion(ctx, orient, a0, a1, railPos, bedPos) {
   if (a1 - a0 <= 0) return;
-  const chamf = Math.min(Math.abs(bedPos - railPos), (a1 - a0) / 2);
+  const depth = Math.abs(bedPos - railPos);
+  const chamf = Math.min(depth * 1.7, (a1 - a0) * 0.42); // long jaw angling into the pocket
+  const sign = Math.sign(bedPos - railPos);              // bed direction from the rail
+
+  // a straight line at coordinate `pos` from `from` to `to` along the rail
+  const line = (pos, from, to, style, lw) => {
+    ctx.strokeStyle = style; ctx.lineWidth = lw;
+    ctx.beginPath();
+    if (orient === 'h') { ctx.moveTo(from, pos); ctx.lineTo(to, pos); }
+    else { ctx.moveTo(pos, from); ctx.lineTo(pos, to); }
+    ctx.stroke();
+  };
+
+  // body: a trapezoid wide at the rail, tapering at the jaws toward the pockets
   ctx.save();
   ctx.beginPath();
   if (orient === 'h') {
-    ctx.moveTo(a0, railPos);
-    ctx.lineTo(a1, railPos);
-    ctx.lineTo(a1 - chamf, bedPos);
-    ctx.lineTo(a0 + chamf, bedPos);
+    ctx.moveTo(a0, railPos); ctx.lineTo(a1, railPos);
+    ctx.lineTo(a1 - chamf, bedPos); ctx.lineTo(a0 + chamf, bedPos);
   } else {
-    ctx.moveTo(railPos, a0);
-    ctx.lineTo(railPos, a1);
-    ctx.lineTo(bedPos, a1 - chamf);
-    ctx.lineTo(bedPos, a0 + chamf);
+    ctx.moveTo(railPos, a0); ctx.lineTo(railPos, a1);
+    ctx.lineTo(bedPos, a1 - chamf); ctx.lineTo(bedPos, a0 + chamf);
   }
   ctx.closePath();
   const g = orient === 'h'
     ? ctx.createLinearGradient(0, railPos, 0, bedPos)
     : ctx.createLinearGradient(railPos, 0, bedPos, 0);
-  g.addColorStop(0, '#0c4628');   // dark where it meets the rail
-  g.addColorStop(0.7, '#1f8a4f');
-  g.addColorStop(1, '#34b86a');   // bright rounded nose
+  g.addColorStop(0, '#0b4327');   // dark, recessed at the rail
+  g.addColorStop(0.6, '#1f8a4f');
+  g.addColorStop(1, '#37bd6d');   // bright rounded crest at the nose
   ctx.fillStyle = g;
   ctx.fill();
-  // crisp highlight along the bounce edge
-  ctx.strokeStyle = 'rgba(190,255,200,0.5)';
-  ctx.lineWidth = 1.4;
-  ctx.beginPath();
-  if (orient === 'h') { ctx.moveTo(a0 + chamf, bedPos); ctx.lineTo(a1 - chamf, bedPos); }
-  else { ctx.moveTo(bedPos, a0 + chamf); ctx.lineTo(bedPos, a1 - chamf); }
-  ctx.stroke();
-  // soft shadow the nose casts onto the bed
-  ctx.strokeStyle = 'rgba(0,0,0,0.22)';
-  ctx.lineWidth = 2.5;
-  ctx.stroke();
   ctx.restore();
+
+  // shadow the raised nose casts onto the bed, then the bright crest on top
+  line(bedPos + sign * 2.5, a0 + chamf, a1 - chamf, 'rgba(0,0,0,0.20)', 3);
+  line(bedPos, a0 + chamf, a1 - chamf, 'rgba(200,255,210,0.55)', 1.4);
 }
 
 function drawDiamonds(ctx, w, h, pa, u) {
