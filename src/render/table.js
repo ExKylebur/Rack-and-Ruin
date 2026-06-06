@@ -2,7 +2,7 @@
 // + state.warp). No hardcoded pocket positions; the cache invalidates whenever
 // pockets move or the table warps, so Move Hole / Warp Rail repaint correctly.
 
-import { playArea, pocketLayout, unitsFor, CUSHION_NOSE_FRAC } from '../geometry.js';
+import { playArea, pocketLayout, unitsFor, cushions } from '../geometry.js';
 
 let _cache = { canvas: null, key: '' };
 
@@ -162,78 +162,43 @@ function drawPocketHole(ctx, p) {
   ctx.fill();
 }
 
-// Cushions, drawn to match a real table: chunky green bumpers whose bed-facing
-// nose runs close to each pocket, with an angled FACING cut at the pocket (corner
-// jaws ~142 deg, side jaws ~104 deg). The pocket holes are painted on top, so they
-// carve the mouth. (The physics funnel lives in geometry.cushions(); this is the
-// visual, kept deliberately full-bodied so bumpers don't look starved next to the
-// holes.)
+// Draw the cushions from the SAME geometry physics bounces off (geometry.cushions).
+// Each cushion is full-depth in the middle of the rail and RECEDES to the rail line
+// at each pocket via an angled facing — so the mouth opens toward the pocket and the
+// facing funnels the ball in (it does not jut across the hole).
 function drawCushions(ctx, dims) {
-  const pa = playArea(dims);
-  const u = unitsFor(dims);
-  const pkt = pocketLayout(dims);
-  const P = {}; pkt.forEach((p) => { P[p.label] = p; });
-  const cd = u.cushion * CUSHION_NOSE_FRAC;    // match the physics bounce-line depth
-  const runC = cd / Math.tan((180 - 142) * Math.PI / 180); // corner facing run (~1.3*cd)
-  const runS = cd / Math.tan((180 - 104) * Math.PI / 180); // side facing run (~0.25*cd)
-  const mnC = u.pocketR * 0.30;   // how close the nose runs to a corner pocket
-  const mnS = u.sidePocketR * 0.45;
+  for (const c of cushions(dims).list) {
+    const [Mlo, Nlo, Nhi, Mhi] = c.poly; // M = rail line (near pockets), N = nose (interior)
+    ctx.save();
+    ctx.beginPath();
+    ctx.moveTo(Mlo.x, Mlo.y);
+    ctx.lineTo(Nlo.x, Nlo.y);
+    ctx.lineTo(Nhi.x, Nhi.y);
+    ctx.lineTo(Mhi.x, Mhi.y);
+    ctx.closePath();
+    const rm = { x: (Mlo.x + Mhi.x) / 2, y: (Mlo.y + Mhi.y) / 2 };
+    const nm = { x: (Nlo.x + Nhi.x) / 2, y: (Nlo.y + Nhi.y) / 2 };
+    const g = ctx.createLinearGradient(rm.x, rm.y, nm.x, nm.y);
+    g.addColorStop(0, '#0b4327');   // dark at the rail base
+    g.addColorStop(0.55, '#1f8a4f');
+    g.addColorStop(1, '#3bc673');   // bright crest at the nose
+    ctx.fillStyle = g;
+    ctx.fill();
+    ctx.restore();
 
-  const endOf = (p) => (p.r === u.sidePocketR ? { mn: mnS, run: runS } : { mn: mnC, run: runC });
-  const span = (orient, railC, bedC, loP, hiP) => {
-    const lo = endOf(loP), hi = endOf(hiP);
-    const aLo = orient === 'h' ? loP.x : loP.y;
-    const aHi = orient === 'h' ? hiP.x : hiP.y;
-    const mk = (a, c) => (orient === 'h' ? { x: a, y: c } : { x: c, y: a });
-    const noseLo = mk(aLo + lo.mn, bedC);
-    const railLo = mk(aLo + lo.mn + lo.run, railC);
-    const noseHi = mk(aHi - hi.mn, bedC);
-    const railHi = mk(aHi - hi.mn - hi.run, railC);
-    drawCushionPoly(ctx, railLo, noseLo, noseHi, railHi, railC, bedC, orient);
-  };
-
-  span('h', pa.top, pa.top + cd, P.TL, P.TM);
-  span('h', pa.top, pa.top + cd, P.TM, P.TR);
-  span('h', pa.bottom, pa.bottom - cd, P.BL, P.BM);
-  span('h', pa.bottom, pa.bottom - cd, P.BM, P.BR);
-  span('v', pa.left, pa.left + cd, P.TL, P.BL);
-  span('v', pa.right, pa.right - cd, P.TR, P.BR);
-}
-
-function drawCushionPoly(ctx, railLo, noseLo, noseHi, railHi, railC, bedC, orient) {
-  ctx.save();
-  ctx.beginPath();
-  ctx.moveTo(railLo.x, railLo.y);
-  ctx.lineTo(noseLo.x, noseLo.y);
-  ctx.lineTo(noseHi.x, noseHi.y);
-  ctx.lineTo(railHi.x, railHi.y);
-  ctx.closePath();
-  const g = orient === 'h'
-    ? ctx.createLinearGradient(0, railC, 0, bedC)
-    : ctx.createLinearGradient(railC, 0, bedC, 0);
-  g.addColorStop(0, '#0b4327');   // recessed at the rail
-  g.addColorStop(0.55, '#1f8a4f');
-  g.addColorStop(1, '#3bc673');   // bright crest at the nose
-  ctx.fillStyle = g;
-  ctx.fill();
-  // shadow the raised nose casts onto the bed
-  const sign = Math.sign(bedC - railC);
-  ctx.strokeStyle = 'rgba(0,0,0,0.22)';
-  ctx.lineWidth = 3;
-  ctx.beginPath();
-  if (orient === 'h') { ctx.moveTo(noseLo.x, noseLo.y + sign * 2); ctx.lineTo(noseHi.x, noseHi.y + sign * 2); }
-  else { ctx.moveTo(noseLo.x + sign * 2, noseLo.y); ctx.lineTo(noseHi.x + sign * 2, noseHi.y); }
-  ctx.stroke();
-  // bright crest along the bed-facing edges (nose + the two angled facings)
-  ctx.strokeStyle = 'rgba(205,255,215,0.55)';
-  ctx.lineWidth = 1.4;
-  ctx.beginPath();
-  ctx.moveTo(railLo.x, railLo.y);
-  ctx.lineTo(noseLo.x, noseLo.y);
-  ctx.lineTo(noseHi.x, noseHi.y);
-  ctx.lineTo(railHi.x, railHi.y);
-  ctx.stroke();
-  ctx.restore();
+    // crest + shadow along the bed-facing edges (jaw, nose, jaw)
+    const edge = (off, style, lw) => {
+      ctx.strokeStyle = style; ctx.lineWidth = lw;
+      ctx.beginPath();
+      c.faces.forEach((s, i) => {
+        if (i === 0) ctx.moveTo(s.x1 + s.nx * off, s.y1 + s.ny * off);
+        ctx.lineTo(s.x2 + s.nx * off, s.y2 + s.ny * off);
+      });
+      ctx.stroke();
+    };
+    edge(2.2, 'rgba(0,0,0,0.20)', 3);          // shadow onto the bed
+    edge(0, 'rgba(205,255,215,0.5)', 1.4);     // bright crest on the bounce faces
+  }
 }
 
 function drawDiamonds(ctx, w, h, pa, u) {
