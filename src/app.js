@@ -7,13 +7,20 @@
 // re-spots the cue and passes the turn.
 
 import { createGameState, rackBalls } from './state.js';
-import { fitCanvas, playArea, toPx, toRel, unitsFor } from './geometry.js';
+import { fitCanvas, playArea, pocketLayout, toPx, toRel, unitsFor } from './geometry.js';
 import { drawTable } from './render/table.js';
 import { drawBall } from './render/ball.js';
 import { drawAim } from './render/aim.js';
+import { drawEffects, drawPickHighlights } from './render/effects.js';
 import {
   makeSim, pocketsFor, freshTurn, applyShot, step, syncToState, commit,
 } from './physics.js';
+import { CARD_POOL, cardById } from './cards/registry.js';
+import { applyCard, clearBallEffects, decayTableEffects } from './cards/effects.js';
+
+const MAX_HAND = 7;
+const DRAW_PER_TURN = 3;
+const PLAY_PER_TURN = 2;
 
 let canvas, ctx;
 const state = createGameState();
@@ -21,6 +28,7 @@ const state = createGameState();
 // runtime (non-serialized) UI/loop flags
 let controlMode = 'mouse';
 let onlineMode = 'local';
+let cardsEnabled = true;
 let ballsMoving = false;
 let aimAngle = 0;
 let shotPower = 0;
@@ -33,6 +41,14 @@ let sim = null;
 let phoneDragStart = null;
 let phoneDragging = false;
 let placingCue = false; // ball-in-hand after a scratch
+
+// card-phase runtime
+let cardPhaseActive = false;
+let cardSelected = [];      // card ids selected to play
+let pendingPick = null;     // { type, prompt } currently awaited on the table
+let cardQueue = [];         // [{ id, opts, steps:[...] }] being resolved
+let cardPhaseDone = null;   // callback to run when the card phase + picks finish
+let idleAnim = null;        // low-freq redraw for animated effects/picks
 
 // ===================== CANVAS =====================
 function sizeCanvas() {
@@ -55,10 +71,30 @@ function cuePx() {
 function render() {
   if (!ctx) return;
   drawTable(ctx, state);
+  drawEffects(ctx, state);
   for (const b of state.balls) drawBall(ctx, b, state);
-  const canAim = state.started && !state.gameOver && !ballsMoving && !placingCue && !!cuePx();
-  if (canAim) drawAim(ctx, state, aimAngle, charging ? shotPower : 0);
+  const e = state.activeEffects || {};
+  const canAim = state.started && !state.gameOver && !ballsMoving && !placingCue
+    && !cardPhaseActive && !pendingPick && !!cuePx();
+  if (canAim && !e.shortsighted) {
+    const sway = e.drunk ? Math.sin(performance.now() / 280) * 0.16 : 0; // Drunk: wobbly aim
+    drawAim(ctx, state, aimAngle + sway, charging ? shotPower : 0);
+  }
   if (placingCue) drawCuePlacement();
+  if (pendingPick) drawPickHighlights(ctx, state, pendingPick);
+}
+
+// Low-frequency redraw so animated effects (portals, pick rings) move while idle.
+function startIdleLoop() {
+  if (idleAnim) return;
+  const tick = () => {
+    if (!state.started || state.gameOver) { idleAnim = null; return; }
+    const e = state.activeEffects || {};
+    const animated = pendingPick || (e.portals && e.portals.length) || (e.drunk && !ballsMoving);
+    if (animated && !ballsMoving) render();
+    idleAnim = requestAnimationFrame(tick);
+  };
+  idleAnim = requestAnimationFrame(tick);
 }
 
 function drawCuePlacement() {
@@ -87,6 +123,7 @@ function variantPlayerCount(v) {
 function onRackUp() {
   state.variant = document.getElementById('variantSelect').value;
   controlMode = document.getElementById('modeMouseBtn').classList.contains('active') ? 'mouse' : 'phone';
+  cardsEnabled = document.getElementById('enableCards').checked;
   const names = ['p1name', 'p2name', 'p3name', 'p4name'].map((id, i) =>
     document.getElementById(id).value || `Player ${i + 1}`);
   const n = variantPlayerCount(state.variant);
@@ -101,8 +138,13 @@ function startGame() {
   state.gameOver = false;
   state.movedPockets = {};
   state.activeEffects = {};
+  state.pocketState = {};
+  state.warp = null;
+  state.players.forEach((p) => { p.hand = []; });
   placingCue = false;
   ballsMoving = false;
+  cardPhaseActive = false; pendingPick = null; cardSelected = []; cardQueue = [];
+  document.getElementById('cardOverlay').classList.add('hidden');
   setSetupVisible(false);
   document.getElementById('overlay').classList.add('hidden');
   sizeCanvas();
@@ -110,7 +152,10 @@ function startGame() {
   document.getElementById('shotBtn').classList.toggle('visible', controlMode === 'phone');
   setStatus(`${state.players[state.currentPlayer].name} to break`);
   updatePlayers();
+  updateHand();
+  updateEffects();
   render();
+  startIdleLoop();
 }
 
 function onNewGame() {
@@ -148,7 +193,11 @@ function beginCharge() {
   chargeStart = performance.now();
   const loop = () => {
     if (!charging) return;
-    shotPower = Math.min((performance.now() - chargeStart) / 1500, 1);
+    let p = Math.min((performance.now() - chargeStart) / 1500, 1);
+    const e = state.activeEffects || {};
+    if (e.roidRage) p = Math.max(p, 0.75);
+    if (e.coolHands) p = Math.min(p, 0.25);
+    shotPower = p;
     updatePowerBar(shotPower);
     render();
     chargeAnim = requestAnimationFrame(loop);
@@ -169,17 +218,18 @@ function releaseCharge() {
 
 function shoot(power, angle) {
   sim = makeSim(state);
-  applyShot(sim, power, angle);
+  applyShot(sim, power, angle, state.activeEffects);
   state.turn = freshTurn();
   ballsMoving = true;
   lastPhysTime = performance.now();
+  const env = { effects: state.activeEffects, pocketState: state.pocketState };
   const tick = () => {
     const now = performance.now();
     const dt = Math.min((now - lastPhysTime) / 16.67, 3);
     lastPhysTime = now;
     let moving = false;
     const sub = 3;
-    for (let i = 0; i < sub; i++) moving = step(sim, pocketsFor(state), dt / sub, state.turn);
+    for (let i = 0; i < sub; i++) moving = step(sim, pocketsFor(state), dt / sub, state.turn, env);
     syncToState(state, sim);
     render();
     if (moving) {
@@ -194,23 +244,33 @@ function shoot(power, angle) {
   physLoop = requestAnimationFrame(tick);
 }
 
-// Simplified turn resolution (full ruleset comes in Phase 3).
+// Simplified turn resolution (full ruleset comes in Phase 3). On a lost turn the
+// shooter gets a card phase to sabotage the incoming player, then play passes.
 function resolveShot() {
   const t = state.turn;
   const pottedObject = t.pocketed.filter((n) => n !== 0);
-  if (t.cueScratched) {
-    respotCue();
-    placingCue = true;
-    advancePlayer();
-    setStatus(`Scratch — ${current().name}: drag the cue ball to place it, then shoot`);
-  } else if (pottedObject.length > 0) {
+  const shooter = state.currentPlayer;
+  const keep = !t.cueScratched && pottedObject.length > 0;
+
+  clearBallEffects(state); // ball/cue effects last exactly one shot
+  if (t.cueScratched) respotCue();
+
+  if (keep) {
     setStatus(`${current().name} pots ${pottedObject.join(', ')} — shoot again`);
-  } else {
-    advancePlayer();
-    setStatus(`${current().name}'s turn`);
+    updatePlayers(); updateEffects(); render();
+    return;
   }
-  updatePlayers();
-  render();
+
+  const proceed = () => {
+    decayTableEffects(state);
+    advancePlayer();
+    if (t.cueScratched) { placingCue = true; setStatus(`Scratch — ${current().name}: place the cue ball, then shoot`); }
+    else setStatus(`${current().name}'s turn`);
+    updatePlayers(); updateEffects(); updateHand(); render();
+  };
+
+  if (cardsEnabled) beginCardPhase(shooter, proceed);
+  else proceed();
 }
 
 function current() { return state.players[state.currentPlayer]; }
@@ -253,6 +313,145 @@ function placeCueAt(px, py) {
   render();
 }
 
+// ===================== CARD PHASE =====================
+const shuffle = (a) => { for (let i = a.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [a[i], a[j]] = [a[j], a[i]]; } return a; };
+
+function drawCards(player) {
+  if (player.hand.length >= MAX_HAND) return [];
+  const slots = MAX_HAND - player.hand.length;
+  const toDraw = Math.min(DRAW_PER_TURN, slots);
+  const drawn = [];
+  const ball = CARD_POOL.filter((c) => c.type === 'ball');
+  const table = CARD_POOL.filter((c) => c.type === 'table');
+  if (toDraw >= 2) { drawn.push(ball[Math.floor(Math.random() * ball.length)].id); drawn.push(table[Math.floor(Math.random() * table.length)].id); }
+  while (drawn.length < toDraw) drawn.push(CARD_POOL[Math.floor(Math.random() * CARD_POOL.length)].id);
+  shuffle(drawn);
+  for (const id of drawn) if (player.hand.length < MAX_HAND) player.hand.push(id);
+  return drawn;
+}
+
+function beginCardPhase(playerIdx, onDone) {
+  cardPhaseDone = onDone;
+  state.cardPhasePlayer = playerIdx;
+  const player = state.players[playerIdx];
+  const drawn = drawCards(player);
+  if (!player.hand.length) { state.cardPhasePlayer = null; cardPhaseDone = null; onDone(); return; }
+  cardPhaseActive = true; cardSelected = [];
+  document.getElementById('cardPhasePlayerName').textContent = player.name;
+  document.getElementById('cardPlayLimit').textContent = PLAY_PER_TURN;
+  document.getElementById('cardDrawInfo').textContent = drawn.length ? `Drew ${drawn.map((id) => cardById(id).name).join(', ')}.` : '';
+  buildCardGrid(player.hand);
+  document.getElementById('cardOverlay').classList.remove('hidden');
+}
+
+function buildCardGrid(hand) {
+  const grid = document.getElementById('cardPickGrid');
+  grid.innerHTML = '';
+  hand.forEach((id, i) => {
+    const c = cardById(id);
+    const div = document.createElement('div');
+    div.className = 'card-pick-item';
+    div.dataset.idx = i;
+    div.innerHTML = `<div class="cpicon">${c.icon || ''}</div><div class="cpname">${c.name}</div>`
+      + `<div class="cpdesc">${c.desc}</div><div class="cptag">${c.type}</div>`;
+    div.addEventListener('click', () => {
+      const sel = div.classList.contains('selected');
+      if (sel) { div.classList.remove('selected'); cardSelected.splice(cardSelected.indexOf(i), 1); }
+      else if (cardSelected.length < PLAY_PER_TURN) { div.classList.add('selected'); cardSelected.push(i); }
+    });
+    grid.appendChild(div);
+  });
+}
+
+function onCardPhaseDone() {
+  document.getElementById('cardOverlay').classList.add('hidden');
+  cardPhaseActive = false;
+  const player = state.players[state.cardPhasePlayer];
+  // resolve selected hand indices to ids, remove from hand (high->low to keep indices valid)
+  const ids = cardSelected.map((i) => player.hand[i]).filter(Boolean);
+  cardSelected.slice().sort((a, b) => b - a).forEach((i) => player.hand.splice(i, 1));
+  cardSelected = [];
+  cardQueue = ids.map((id) => ({ id, opts: {}, steps: [...(cardById(id).interactions || [])] }));
+  updateHand();
+  processCardQueue();
+}
+
+function onCardPhaseSkip() {
+  document.getElementById('cardOverlay').classList.add('hidden');
+  cardPhaseActive = false; cardSelected = [];
+  finishCardPhase();
+}
+
+function processCardQueue() {
+  if (!cardQueue.length) { finishCardPhase(); return; }
+  const item = cardQueue[0];
+  if (item.steps.length) {
+    const s = item.steps[0];
+    pendingPick = { type: s.type, prompt: s.prompt, cardId: item.id };
+    setStatus(`${state.players[state.cardPhasePlayer].name}: ${s.prompt}`);
+    render();
+  } else {
+    applyCard(state, item.id, item.opts);
+    cardQueue.shift();
+    updateEffects(); render();
+    processCardQueue();
+  }
+}
+
+// Resolve one table pick during the card phase. Returns true if the click hit a
+// valid target (otherwise it's ignored and we keep waiting).
+function resolvePick(x, y) {
+  const item = cardQueue[0];
+  if (!item || !pendingPick) return;
+  const r = unitsFor(state.dims).ballR;
+  let ok = false;
+  if (pendingPick.type === 'ball') {
+    const b = state.balls.find((bb) => !bb.pocketed && bb.num !== 0 && hitBall(bb, x, y, r));
+    if (b) { item.opts.ball = b.num; ok = true; }
+  } else if (pendingPick.type === 'pocket') {
+    const pk = pocketLayout(state.dims, state.movedPockets);
+    let best = -1, bd = Infinity;
+    pk.forEach((p, i) => { const d = Math.hypot(p.x - x, p.y - y); if (d < p.r * 2.2 && d < bd) { bd = d; best = i; } });
+    if (best >= 0) { item.opts.pocket = best; ok = true; }
+  } else if (pendingPick.type === 'rail') {
+    const rail = railFromClick(x, y);
+    if (rail) { item.opts.rail = rail; ok = true; }
+  } else if (pendingPick.type === 'place') {
+    const pa = playArea(state.dims);
+    if (x > pa.left && x < pa.right && y > pa.top && y < pa.bottom) {
+      const rel = toRel({ x, y }, state.dims);
+      if (item.id === 'portal') (item.opts.positions ||= []).push(rel);
+      else if (item.id === 'move_hole' && item.opts.pocket !== undefined) item.opts.to = rel;
+      else item.opts.pos = rel;
+      ok = true;
+    }
+  }
+  if (!ok) return;
+  item.steps.shift();
+  pendingPick = null;
+  processCardQueue();
+}
+
+function finishCardPhase() {
+  pendingPick = null; cardQueue = [];
+  const done = cardPhaseDone; cardPhaseDone = null;
+  state.cardPhasePlayer = null;
+  if (done) done();
+}
+
+function hitBall(b, x, y, r) {
+  const p = toPx({ u: b.u, v: b.v }, state.dims);
+  return Math.hypot(p.x - x, p.y - y) < r * (b.size || 1) * 2;
+}
+function railFromClick(x, y) {
+  const c = unitsFor(state.dims).cushion;
+  if (y < c) return 'top';
+  if (y > state.dims.h - c) return 'bottom';
+  if (x < c) return 'left';
+  if (x > state.dims.w - c) return 'right';
+  return null;
+}
+
 // ===================== INPUT =====================
 function canvasPos(e) {
   const rect = canvas.getBoundingClientRect();
@@ -272,13 +471,14 @@ function wireInput() {
   canvas.addEventListener('mousemove', (e) => {
     if (!state.started || ballsMoving) return;
     const pos = canvasPos(e);
-    if (placingCue) { render(); return; }
+    if (placingCue || pendingPick) { render(); return; }
     updateAimFromPoint(pos.x, pos.y);
     render();
   });
   canvas.addEventListener('mousedown', (e) => {
     if (!state.started || ballsMoving || e.button !== 0) return;
     const pos = canvasPos(e);
+    if (pendingPick) { resolvePick(pos.x, pos.y); return; }
     if (placingCue) { placeCueAt(pos.x, pos.y); return; }
     if (controlMode === 'mouse') beginCharge();
   });
@@ -290,6 +490,7 @@ function wireInput() {
     if (!state.started || ballsMoving) return;
     e.preventDefault();
     const pos = canvasPos(e.touches[0]);
+    if (pendingPick) { resolvePick(pos.x, pos.y); return; }
     if (placingCue) { placeCueAt(pos.x, pos.y); return; }
     phoneDragStart = pos; phoneDragging = false;
   }, { passive: false });
@@ -333,6 +534,42 @@ function updatePlayers() {
       + '<div class="player-score"></div>';
     el.appendChild(row);
   });
+}
+
+function updateHand() {
+  const el = document.getElementById('handArea');
+  const p = state.players[state.currentPlayer];
+  if (!p || !p.hand.length) { el.innerHTML = '<span style="font-size:11px;color:#555">No cards</span>'; return; }
+  el.innerHTML = '';
+  p.hand.forEach((id) => {
+    const c = cardById(id); if (!c) return;
+    const div = document.createElement('div');
+    div.className = 'card-item';
+    div.innerHTML = `<div class="card-name">${c.icon || ''} ${c.name}</div><div class="card-desc">${c.desc}</div>`;
+    el.appendChild(div);
+  });
+}
+
+function updateEffects() {
+  const el = document.getElementById('effectsDisplay');
+  const e = state.activeEffects || {};
+  const ps = state.pocketState || {};
+  const chips = [];
+  const add = (cond, label) => { if (cond) chips.push(label); };
+  add(e.fogOfWar, '🌫️ Fog'); add(e.confusion, '🔀 Confusion'); add(e.cloaked != null, '👻 Cloak');
+  add(e.sticky, '🍯 Sticky'); add(e.drunk, '🍺 Drunk'); add(e.shortsighted, '🔭 Shortsighted');
+  add(e.roidRage, '💢 Roid ≥75%'); add(e.coolHands, '🧊 Cool ≤25%'); add(e.bigBall, '🔵 Big Cue');
+  add(e.smallBall, '⚬ Small Cue'); add(e.oilCue, '💧 Oil'); add(e.reverseSpin, '↩️ Reverse');
+  add(e.mirror, '🪞 Mirror'); add(e.magnet, '🧲 Magnet'); add(e.turbo, '⚡ Turbo');
+  add(e.bouncer, '🔴 Bouncer'); add(e.bearTrap, '🪤 Bear Trap'); add(e.icePatch, '🧊 Ice');
+  add(e.mudPatch, '💩 Mud'); add(e.crosswind, '💨 Crosswind');
+  add(e.portals && e.portals.length, '🌀 Portal');
+  add(e.bounceHouseRail && e.bounceHouseRail.length, '🎪 Bounce: ' + (e.bounceHouseRail || []).join(', '));
+  add(e.deadRail && e.deadRail.length, '🪵 Dead: ' + (e.deadRail || []).join(', '));
+  if (state.warp) chips.push('🌊 Warp');
+  Object.keys(ps).forEach((i) => { if (ps[i].blocked) chips.push('🚫 Blocked'); if (ps[i].shrunk) chips.push('🔩 Shrunk'); });
+  el.innerHTML = chips.length ? chips.map((c) => `<div class="effect-tag">${c}</div>`).join('')
+    : '<span style="font-size:11px;color:#555">None</span>';
 }
 
 function guideText(v) {
@@ -386,8 +623,7 @@ function boot() {
     onCreateRoom: () => showToast('Online play arrives in a later update.'),
     onJoinRoom: () => showToast('Online play arrives in a later update.'),
     copyInvite: () => {},
-    // card/confirm overlays (Phase 2) — safe no-ops for now
-    onCardPhaseDone: () => {}, onCardPhaseSkip: () => {},
+    onCardPhaseDone, onCardPhaseSkip,
     onConfirmYes: () => {}, onConfirmNo: () => {},
   });
 
@@ -399,6 +635,12 @@ function boot() {
     isMoving: () => ballsMoving,
     moveHole(i, u, v) { state.movedPockets[i] = { u, v }; render(); },
     setSize(num, size) { const b = state.balls.find((x) => x.num === num); if (b) { b.size = size; render(); } },
+    // card-phase debug
+    pick: () => pendingPick,
+    queue: () => cardQueue.map((c) => ({ id: c.id, opts: c.opts, steps: c.steps.length })),
+    cardPhaseActive: () => cardPhaseActive,
+    selected: () => cardSelected.slice(),
+    clickRel: (u, v) => { const p = toPx({ u, v }, state.dims); if (pendingPick) resolvePick(p.x, p.y); else if (placingCue) placeCueAt(p.x, p.y); },
   };
 }
 

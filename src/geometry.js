@@ -103,7 +103,7 @@ export function cushions(dims) {
     return { x1: p1.x, y1: p1.y, x2: p2.x, y2: p2.y, nx, ny };
   };
 
-  function span(orient, railC, noseC, lo, hi) {
+  function span(orient, railC, noseC, lo, hi, rail) {
     const loMh = lo.type === 'corner' ? mhCorner : mhSide;
     const loRun = lo.type === 'corner' ? runCorner : runSide;
     const hiMh = hi.type === 'corner' ? mhCorner : mhSide;
@@ -114,18 +114,19 @@ export function cushions(dims) {
     const Mhi = pt(orient, hi.along - hiMh, railC);
     const poly = [Mlo, Nlo, Nhi, Mhi];
     const ctr = poly.reduce((a, p) => ({ x: a.x + p.x / 4, y: a.y + p.y / 4 }), { x: 0, y: 0 });
-    return { poly, faces: [seg(Mlo, Nlo, ctr), seg(Nlo, Nhi, ctr), seg(Nhi, Mhi, ctr)] };
+    const tag = (sg) => { sg.rail = rail; return sg; };
+    return { rail, poly, faces: [tag(seg(Mlo, Nlo, ctr)), tag(seg(Nlo, Nhi, ctr)), tag(seg(Nhi, Mhi, ctr))] };
   }
 
   const corner = (along) => ({ along, type: 'corner' });
   const side = (along) => ({ along, type: 'side' });
   const list = [
-    span('h', pa.top, pa.top + nose, corner(pa.left), side(cx)),
-    span('h', pa.top, pa.top + nose, side(cx), corner(pa.right)),
-    span('h', pa.bottom, pa.bottom - nose, corner(pa.left), side(cx)),
-    span('h', pa.bottom, pa.bottom - nose, side(cx), corner(pa.right)),
-    span('v', pa.left, pa.left + nose, corner(pa.top), corner(pa.bottom)),
-    span('v', pa.right, pa.right - nose, corner(pa.top), corner(pa.bottom)),
+    span('h', pa.top, pa.top + nose, corner(pa.left), side(cx), 'top'),
+    span('h', pa.top, pa.top + nose, side(cx), corner(pa.right), 'top'),
+    span('h', pa.bottom, pa.bottom - nose, corner(pa.left), side(cx), 'bottom'),
+    span('h', pa.bottom, pa.bottom - nose, side(cx), corner(pa.right), 'bottom'),
+    span('v', pa.left, pa.left + nose, corner(pa.top), corner(pa.bottom), 'left'),
+    span('v', pa.right, pa.right - nose, corner(pa.top), corner(pa.bottom), 'right'),
   ];
   return { nose, list };
 }
