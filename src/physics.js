@@ -17,7 +17,7 @@ export const WALL_DAMP = 0.72;     // normal velocity retained per rail bounce
 export const TANG_DAMP = 0.96;     // tangential velocity retained per rail bounce
 export const MIN_SPEED = 0.04;     // below this a ball is considered stopped
 export const MAX_SHOT_SPEED = 38;  // px/frame at CANON scale, at full power
-export const POCKET_PULL_RADIUS = 1.0; // capture when centre within painted hole
+export const POCKET_PULL_RADIUS = 1.15; // capture reach (incl. recessed side pockets)
 
 // Build the px working set from state (called at shot start).
 export function makeSim(state) {

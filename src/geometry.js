@@ -83,12 +83,13 @@ export function cushions(dims) {
   const pa = playArea(dims);
   const u = unitsFor(dims);
   const nose = u.cushion * CUSHION_NOSE_FRAC;
-  const mhCorner = u.pocketR * 0.75;     // facing meets the rail this far from a corner pocket
-  const mhSide = u.sidePocketR * 0.65;   // ...and this far from a side pocket
-  const devCorner = (180 - CORNER_CUT_DEG) * Math.PI / 180; // jaw deviation from the rail
-  const devSide = (180 - SIDE_CUT_DEG) * Math.PI / 180;
-  const runCorner = nose / Math.tan(devCorner); // along-rail run of the jaw
-  const runSide = nose / Math.tan(devSide);
+  // How far from each pocket the cushion's rail end sits (the mouth half-width):
+  // bigger = wider opening. Corners get a generously wide mouth.
+  const mhCorner = u.pocketR * 1.2;
+  const mhSide = u.sidePocketR * 0.95;
+  // Along-rail run of the angled facing (bigger = more visibly angled jaw).
+  const runCorner = nose * 1.35;
+  const runSide = nose * 1.0;
   const cx = pa.cx, cy = pa.cy;
 
   const pt = (orient, along, coord) => (orient === 'h' ? { x: along, y: coord } : { x: coord, y: along });
@@ -134,12 +135,15 @@ export function cushions(dims) {
 export function pocketLayout(dims, moved = {}) {
   const pa = playArea(dims);
   const u = unitsFor(dims);
+  // Side pockets are recessed back INTO the rail (away from the bed) so the hole
+  // doesn't bulge into the play area — only its mouth meets the cushion line.
+  const sr = u.sidePocketR * 0.55;
   const defaults = [
     { x: pa.left, y: pa.top, r: u.pocketR, label: 'TL' },
-    { x: pa.cx, y: pa.top, r: u.sidePocketR, label: 'TM' },
+    { x: pa.cx, y: pa.top - sr, r: u.sidePocketR, label: 'TM' },
     { x: pa.right, y: pa.top, r: u.pocketR, label: 'TR' },
     { x: pa.left, y: pa.bottom, r: u.pocketR, label: 'BL' },
-    { x: pa.cx, y: pa.bottom, r: u.sidePocketR, label: 'BM' },
+    { x: pa.cx, y: pa.bottom + sr, r: u.sidePocketR, label: 'BM' },
     { x: pa.right, y: pa.bottom, r: u.pocketR, label: 'BR' },
   ];
   return defaults.map((d, i) => {

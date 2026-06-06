@@ -65,17 +65,17 @@ test('rel<->px round trips within the play area', () => {
 test('pocketLayout: 6 pockets at corners + side midpoints by default', () => {
   const dims = { w: 1000, h: 540 };
   const pa = playArea(dims);
+  const u = unitsFor(dims);
+  const sr = u.sidePocketR * 0.55; // side pockets recessed back into the rail
   const pk = pocketLayout(dims);
   assert.equal(pk.length, 6);
-  // corners
+  // corners sit at the play-area corners
   assert.ok(approx(pk[0].x, pa.left) && approx(pk[0].y, pa.top), 'TL');
   assert.ok(approx(pk[2].x, pa.right) && approx(pk[2].y, pa.top), 'TR');
   assert.ok(approx(pk[5].x, pa.right) && approx(pk[5].y, pa.bottom), 'BR');
-  // side midpoints
-  assert.ok(approx(pk[1].x, pa.cx) && approx(pk[1].y, pa.top), 'TM');
-  assert.ok(approx(pk[4].x, pa.cx) && approx(pk[4].y, pa.bottom), 'BM');
-  // side pockets are the larger radius
-  const u = unitsFor(dims);
+  // side pockets centred on the rail, recessed into it
+  assert.ok(approx(pk[1].x, pa.cx) && approx(pk[1].y, pa.top - sr), 'TM');
+  assert.ok(approx(pk[4].x, pa.cx) && approx(pk[4].y, pa.bottom + sr), 'BM');
   assert.ok(approx(pk[1].r, u.sidePocketR) && approx(pk[0].r, u.pocketR));
 });
 
