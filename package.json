@@ -1,0 +1,10 @@
+{
+  "name": "rack-and-ruin",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Card-battler pool game (vanilla ES modules, no build step).",
+  "scripts": {
+    "test": "node --test"
+  }
+}
