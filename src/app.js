@@ -12,7 +12,7 @@ import { fitCanvas, playArea, pocketLayout, toPx, toRel, unitsFor } from './geom
 import { drawTable } from './render/table.js';
 import { drawBall } from './render/ball.js';
 import { drawAim } from './render/aim.js';
-import { drawEffects, drawPickHighlights, drawFog, drawPlacementGhost } from './render/effects.js';
+import { drawEffects, drawEffectBadges, drawPickHighlights, drawFog, drawPlacementGhost } from './render/effects.js';
 import {
   makeSim, pocketsFor, freshTurn, applyShot, step, syncToState, commit,
 } from './physics.js';
@@ -75,8 +75,9 @@ function cuePx() {
 function render() {
   if (!ctx) return;
   drawTable(ctx, state);
-  drawEffects(ctx, state);
+  drawEffects(ctx, state);                 // zone/rail art, under the balls
   for (const b of state.balls) drawBall(ctx, b, state);
+  drawEffectBadges(ctx, state);            // status glyphs, over the balls
   const e = state.activeEffects || {};
   const canAim = state.started && !state.gameOver && !ballsMoving && !placingCue
     && !cardPhaseActive && !pendingPick && !!cuePx();
@@ -100,7 +101,9 @@ function startIdleLoop() {
   const tick = () => {
     if (!state.started || state.gameOver) { idleAnim = null; return; }
     const e = state.activeEffects || {};
-    const animated = pendingPick || (e.portals && e.portals.length) || (e.drunk && !ballsMoving);
+    const animatedFx = (e.portals && e.portals.length) || e.crosswind || e.magnet || e.turbo
+      || e.bouncer || e.icePatch || e.mudPatch || (e.bounceHouseRail && e.bounceHouseRail.length);
+    const animated = pendingPick || (e.drunk && !ballsMoving) || animatedFx;
     if (animated && !ballsMoving) render();
     idleAnim = requestAnimationFrame(tick);
   };

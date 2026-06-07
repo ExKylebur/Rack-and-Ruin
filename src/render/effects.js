@@ -2,7 +2,7 @@
 // frame. Zone positions are relative {u,v} -> px via toPx; radii use the same
 // ball-radius factors as physics so visuals match the simulation.
 
-import { playArea, pocketLayout, toPx, unitsFor } from '../geometry.js';
+import { playArea, pocketLayout, toPx, unitsFor, cushions } from '../geometry.js';
 
 const F = { ice: 5.3, mud: 4.8, bouncer: 0.95, trap: 1.2, portal: 1.4 };
 
@@ -10,40 +10,19 @@ export function drawEffects(ctx, state) {
   const e = state.activeEffects || {};
   const r = unitsFor(state.dims).ballR;
   const at = (rel) => toPx(rel, state.dims);
+  const t = performance.now();
 
-  if (e.icePatch) zone(ctx, at(e.icePatch), r * F.ice, 'rgba(180,220,255,0.22)', 'rgba(180,220,255,0.5)', '🧊');
-  if (e.mudPatch) zone(ctx, at(e.mudPatch), r * F.mud, 'rgba(100,60,20,0.36)', 'rgba(140,90,40,0.5)', '💩');
+  // Rail treatments first (over the cushions, under everything else).
+  drawRailEffects(ctx, state, e, t);
+  if (e.crosswind) drawCrosswind(ctx, state, e.crosswind, t);     // table-wide breeze
+  if (e.magnet) drawMagnetField(ctx, state, t);
 
-  if (e.bouncer) {
-    const p = at(e.bouncer); const rad = r * F.bouncer;
-    const g = ctx.createRadialGradient(p.x - 2, p.y - 2, 1, p.x, p.y, rad);
-    g.addColorStop(0, '#ff6b5b'); g.addColorStop(1, '#c0392b');
-    ctx.beginPath(); ctx.arc(p.x, p.y, rad, 0, Math.PI * 2); ctx.fillStyle = g; ctx.fill();
-    ctx.strokeStyle = 'rgba(255,150,130,0.7)'; ctx.lineWidth = 2; ctx.stroke();
-  }
-  if (e.bearTrap) {
-    const p = at(e.bearTrap);
-    ctx.save(); ctx.globalAlpha = 0.5; ctx.font = `${r * 1.8}px sans-serif`;
-    ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillText('🪤', p.x, p.y); ctx.restore();
-  }
+  if (e.icePatch) drawIce(ctx, at(e.icePatch), r * F.ice, t);
+  if (e.mudPatch) drawMud(ctx, at(e.mudPatch), r * F.mud, t);
+  if (e.bouncer) drawBouncer(ctx, at(e.bouncer), r * F.bouncer, t);
+  if (e.bearTrap) drawBearTrap(ctx, at(e.bearTrap), r * F.trap, t);
   if (e.portals && e.portals.length) {
-    const t = performance.now() / 500;
-    const cols = ['rgba(120,90,255,', 'rgba(255,90,120,'];
-    e.portals.forEach((pp, i) => {
-      const p = at(pp); const rad = r * F.portal + Math.sin(t + i * Math.PI) * 2;
-      ctx.beginPath(); ctx.arc(p.x, p.y, rad, 0, Math.PI * 2);
-      ctx.strokeStyle = cols[i % 2] + '0.8)'; ctx.lineWidth = 2; ctx.stroke();
-      ctx.font = `${r * 1.5}px sans-serif`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-      ctx.fillText('🌀', p.x, p.y);
-    });
-  }
-  if (e.crosswind) {
-    const pa = playArea(state.dims); const cx = pa.cx, cy = pa.top * 0.5;
-    const dir = e.crosswind > 0 ? 1 : -1; const len = 24 + Math.abs(e.crosswind) * 18;
-    ctx.strokeStyle = 'rgba(180,220,255,0.7)'; ctx.lineWidth = 2;
-    ctx.beginPath(); ctx.moveTo(cx - dir * len, cy); ctx.lineTo(cx + dir * len, cy);
-    ctx.moveTo(cx + dir * len, cy); ctx.lineTo(cx + dir * (len - 8), cy - 6);
-    ctx.moveTo(cx + dir * len, cy); ctx.lineTo(cx + dir * (len - 8), cy + 6); ctx.stroke();
+    e.portals.forEach((pp, i) => drawPortal(ctx, at(pp), r * F.portal, t, i));
   }
 
   // pocket states — reshape the actual opening, not just tint it
@@ -162,12 +141,318 @@ export function drawFog(ctx, state, aimAngle) {
   ctx.drawImage(fog, 0, 0);
 }
 
-function zone(ctx, p, rad, fill, stroke, emoji) {
+// A stable pseudo-random in [0,1) from an integer seed (so textures don't shimmer).
+function rnd(seed) { const s = Math.sin(seed * 12.9898) * 43758.5453; return s - Math.floor(s); }
+
+// ---- Ice patch: a frosted, glinting sheet of ice -------------------------------
+function drawIce(ctx, p, rad, t) {
+  ctx.save();
+  ctx.beginPath(); ctx.arc(p.x, p.y, rad, 0, Math.PI * 2); ctx.clip();
+  const g = ctx.createRadialGradient(p.x - rad * 0.3, p.y - rad * 0.3, rad * 0.1, p.x, p.y, rad);
+  g.addColorStop(0, 'rgba(232,248,255,0.95)');
+  g.addColorStop(0.55, 'rgba(160,212,242,0.82)');
+  g.addColorStop(1, 'rgba(120,180,224,0.6)');
+  ctx.fillStyle = g; ctx.fillRect(p.x - rad, p.y - rad, rad * 2, rad * 2);
+  // crystalline facets
+  ctx.strokeStyle = 'rgba(255,255,255,0.55)'; ctx.lineWidth = 1;
+  for (let i = 0; i < 8; i++) {
+    const a = (i / 8) * Math.PI * 2 + 0.4;
+    const e = rad * (0.55 + rnd(i + 1) * 0.45);
+    ctx.beginPath(); ctx.moveTo(p.x, p.y);
+    ctx.lineTo(p.x + Math.cos(a) * e, p.y + Math.sin(a) * e);
+    ctx.lineTo(p.x + Math.cos(a + 0.4) * e * 0.5, p.y + Math.sin(a + 0.4) * e * 0.5);
+    ctx.stroke();
+  }
+  // travelling glint
+  const gl = (Math.sin(t / 650) + 1) / 2;
+  ctx.globalAlpha = 0.25 + gl * 0.45;
+  ctx.beginPath();
+  ctx.ellipse(p.x - rad * 0.2, p.y - rad * 0.28, rad * 0.55, rad * 0.22, -0.6, 0, Math.PI * 2);
+  ctx.fillStyle = '#ffffff'; ctx.fill();
+  ctx.restore();
   ctx.beginPath(); ctx.arc(p.x, p.y, rad, 0, Math.PI * 2);
-  ctx.fillStyle = fill; ctx.fill();
-  ctx.strokeStyle = stroke; ctx.lineWidth = 1.5; ctx.stroke();
-  ctx.font = '15px sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-  ctx.fillText(emoji, p.x, p.y);
+  ctx.strokeStyle = 'rgba(210,240,255,0.9)'; ctx.lineWidth = 2; ctx.stroke();
+  glyph(ctx, '❄️', p.x, p.y, rad * 0.5, 0.9);
+}
+
+// ---- Mud patch: wet, lumpy, bubbling mud ---------------------------------------
+function drawMud(ctx, p, rad, t) {
+  ctx.save();
+  ctx.beginPath(); ctx.arc(p.x, p.y, rad, 0, Math.PI * 2); ctx.clip();
+  const g = ctx.createRadialGradient(p.x - rad * 0.25, p.y - rad * 0.25, rad * 0.1, p.x, p.y, rad);
+  g.addColorStop(0, 'rgba(96,64,34,0.97)');
+  g.addColorStop(0.7, 'rgba(68,44,22,0.96)');
+  g.addColorStop(1, 'rgba(48,30,14,0.92)');
+  ctx.fillStyle = g; ctx.fillRect(p.x - rad, p.y - rad, rad * 2, rad * 2);
+  // lumps
+  for (let i = 0; i < 10; i++) {
+    const a = rnd(i + 3) * Math.PI * 2, d = rnd(i + 9) * rad * 0.8;
+    const lx = p.x + Math.cos(a) * d, ly = p.y + Math.sin(a) * d, lr = rad * (0.12 + rnd(i + 5) * 0.18);
+    ctx.beginPath(); ctx.arc(lx, ly, lr, 0, Math.PI * 2);
+    ctx.fillStyle = i % 2 ? 'rgba(58,38,18,0.8)' : 'rgba(110,76,40,0.6)'; ctx.fill();
+  }
+  // slow rising bubbles
+  for (let i = 0; i < 4; i++) {
+    const ph = (t / 1400 + i * 0.27) % 1;
+    const bx = p.x + (rnd(i + 1) - 0.5) * rad * 1.2;
+    const by = p.y + rad * 0.6 - ph * rad * 1.2;
+    const br = rad * 0.08 * (1 - ph * 0.4);
+    ctx.beginPath(); ctx.arc(bx, by, br, 0, Math.PI * 2);
+    ctx.fillStyle = `rgba(150,110,60,${0.5 * (1 - ph)})`; ctx.fill();
+  }
+  ctx.restore();
+  ctx.beginPath(); ctx.arc(p.x, p.y, rad, 0, Math.PI * 2);
+  ctx.strokeStyle = 'rgba(40,26,12,0.9)'; ctx.lineWidth = 2; ctx.stroke();
+  glyph(ctx, '🟤', p.x, p.y, rad * 0.5, 0.7);
+}
+
+// ---- Bouncer: a glossy rubber bumper -------------------------------------------
+function drawBouncer(ctx, p, rad, t) {
+  const pulse = 1 + Math.sin(t / 220) * 0.05;
+  const R = rad * pulse;
+  ctx.save();
+  ctx.beginPath(); ctx.arc(p.x, p.y, R + 2, 0, Math.PI * 2);
+  ctx.fillStyle = 'rgba(60,10,6,0.9)'; ctx.fill();             // dark rubber base
+  const g = ctx.createRadialGradient(p.x - R * 0.35, p.y - R * 0.4, R * 0.1, p.x, p.y, R);
+  g.addColorStop(0, '#ff8a78'); g.addColorStop(0.6, '#e0452f'); g.addColorStop(1, '#a31f12');
+  ctx.beginPath(); ctx.arc(p.x, p.y, R, 0, Math.PI * 2); ctx.fillStyle = g; ctx.fill();
+  ctx.beginPath(); ctx.ellipse(p.x - R * 0.28, p.y - R * 0.34, R * 0.34, R * 0.18, -0.6, 0, Math.PI * 2);
+  ctx.fillStyle = 'rgba(255,255,255,0.55)'; ctx.fill();        // glossy highlight
+  ctx.restore();
+}
+
+// ---- Bear trap: sprung steel jaws with teeth -----------------------------------
+function drawBearTrap(ctx, p, rad, t) {
+  const R = rad * 1.7;
+  ctx.save();
+  ctx.translate(p.x, p.y);
+  // ground plate / spring base
+  ctx.beginPath(); ctx.ellipse(0, R * 0.18, R * 0.95, R * 0.4, 0, 0, Math.PI * 2);
+  ctx.fillStyle = 'rgba(30,30,34,0.55)'; ctx.fill();
+  // round pressure plate in the middle
+  ctx.beginPath(); ctx.arc(0, 0, R * 0.34, 0, Math.PI * 2);
+  const pg = ctx.createRadialGradient(-R * 0.1, -R * 0.1, R * 0.05, 0, 0, R * 0.34);
+  pg.addColorStop(0, '#8a4a1e'); pg.addColorStop(1, '#3c2210');
+  ctx.fillStyle = pg; ctx.fill();
+  // two semicircular jaws (left + right) with triangular teeth
+  for (const side of [-1, 1]) {
+    ctx.save();
+    ctx.scale(side, 1);
+    const a0 = -Math.PI / 2 + 0.15, a1 = Math.PI / 2 - 0.15;
+    ctx.beginPath(); ctx.arc(0, 0, R * 0.86, a0, a1);
+    ctx.lineWidth = R * 0.16; ctx.strokeStyle = '#9aa0a8'; ctx.lineCap = 'round'; ctx.stroke();
+    ctx.strokeStyle = 'rgba(255,255,255,0.35)'; ctx.lineWidth = R * 0.05; ctx.stroke();
+    // teeth pointing inward
+    ctx.fillStyle = '#cdd2d8';
+    const N = 6;
+    for (let i = 0; i <= N; i++) {
+      const a = a0 + (a1 - a0) * (i / N);
+      const ox = Math.cos(a), oy = Math.sin(a);
+      const bx = ox * R * 0.78, by = oy * R * 0.78;     // base on inner edge
+      const tx = ox * R * 0.5, ty = oy * R * 0.5;        // tip toward centre
+      const px = -oy, py = ox;                            // tangent
+      ctx.beginPath();
+      ctx.moveTo(bx + px * R * 0.09, by + py * R * 0.09);
+      ctx.lineTo(bx - px * R * 0.09, by - py * R * 0.09);
+      ctx.lineTo(tx, ty); ctx.closePath(); ctx.fill();
+    }
+    ctx.restore();
+  }
+  ctx.restore();
+}
+
+// ---- Portal: a swirling vortex -------------------------------------------------
+function drawPortal(ctx, p, rad, t, i) {
+  const col = i % 2 ? [255, 90, 150] : [120, 130, 255];
+  const spin = t / 360 * (i % 2 ? -1 : 1);
+  ctx.save();
+  ctx.translate(p.x, p.y);
+  const core = ctx.createRadialGradient(0, 0, 1, 0, 0, rad);
+  core.addColorStop(0, `rgba(${col[0]},${col[1]},${col[2]},0.95)`);
+  core.addColorStop(0.5, `rgba(${col[0]},${col[1]},${col[2]},0.4)`);
+  core.addColorStop(1, 'rgba(10,5,25,0.85)');
+  ctx.beginPath(); ctx.arc(0, 0, rad, 0, Math.PI * 2); ctx.fillStyle = core; ctx.fill();
+  // spiral arms
+  ctx.strokeStyle = `rgba(255,255,255,0.8)`; ctx.lineWidth = 1.6;
+  for (let a = 0; a < 2; a++) {
+    ctx.beginPath();
+    for (let s = 0; s <= 1; s += 0.08) {
+      const ang = spin + a * Math.PI + s * 6;
+      const rr = s * rad;
+      const x = Math.cos(ang) * rr, y = Math.sin(ang) * rr;
+      s === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
+    }
+    ctx.stroke();
+  }
+  ctx.beginPath(); ctx.arc(0, 0, rad, 0, Math.PI * 2);
+  ctx.strokeStyle = `rgba(${col[0]},${col[1]},${col[2]},0.9)`; ctx.lineWidth = 2; ctx.stroke();
+  ctx.restore();
+}
+
+// ---- Crosswind: drifting streaks blowing across the table ----------------------
+function drawCrosswind(ctx, state, strength, t) {
+  const pa = playArea(state.dims);
+  const dir = strength > 0 ? 1 : -1;
+  ctx.save();
+  ctx.beginPath(); ctx.rect(pa.left, pa.top, pa.w, pa.h); ctx.clip();
+  ctx.strokeStyle = 'rgba(205,232,255,0.34)'; ctx.lineCap = 'round';
+  const rows = 7, span = Math.abs(strength) * 60 + 50;
+  for (let i = 0; i < rows; i++) {
+    const y = pa.top + pa.h * ((i + 0.5) / rows);
+    const phase = ((t / 1600) + i * 0.16) % 1;
+    const x = pa.left - span + phase * (pa.w + span * 2);
+    const xx = dir > 0 ? x : pa.right - (x - pa.left);
+    ctx.lineWidth = 1 + (i % 2);
+    ctx.globalAlpha = Math.sin(phase * Math.PI) * 0.8;
+    ctx.beginPath(); ctx.moveTo(xx, y); ctx.lineTo(xx + dir * span * 0.5, y); ctx.stroke();
+  }
+  ctx.restore();
+}
+
+// ---- Magnet: pulsing field arcs around every pocket ----------------------------
+function drawMagnetField(ctx, state, t) {
+  const pulse = (Math.sin(t / 320) + 1) / 2;
+  ctx.save();
+  ctx.lineWidth = 1.4;
+  for (const p of pocketLayout(state.dims, state.movedPockets)) {
+    for (let k = 1; k <= 3; k++) {
+      const rr = p.r * (1.4 + k * 0.7 + pulse * 0.3);
+      ctx.beginPath(); ctx.arc(p.x, p.y, rr, 0, Math.PI * 2);
+      ctx.strokeStyle = `rgba(120,200,255,${0.22 - k * 0.05})`;
+      ctx.stroke();
+    }
+  }
+  ctx.restore();
+}
+
+// ---- Rail treatments: Bounce House (rubber band) & Dead Rail (rotted) -----------
+function drawRailEffects(ctx, state, e, t) {
+  const bh = e.bounceHouseRail || [];
+  const dr = e.deadRail || [];
+  if (!bh.length && !dr.length) return;
+  const list = cushions(state.dims).list;
+  for (const span of list) {
+    if (bh.includes(span.rail)) drawRubberRail(ctx, span, t);
+    if (dr.includes(span.rail)) drawRottedRail(ctx, span);
+  }
+}
+
+// the bed-facing crest of a cushion span: jaw -> nose -> jaw endpoints
+function crest(span) {
+  const f = span.faces;
+  return [
+    { x: f[0].x1, y: f[0].y1 }, { x: f[0].x2, y: f[0].y2 },
+    { x: f[1].x2, y: f[1].y2 }, { x: f[2].x2, y: f[2].y2 },
+  ];
+}
+
+function drawRubberRail(ctx, span, t) {
+  const pts = crest(span);
+  const n = span.faces[1]; // nose normal points into the bed
+  const wob = Math.sin(t / 130) * 2.2; // vibrating band
+  ctx.save();
+  ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+  const draw = (off, style, w) => {
+    ctx.beginPath();
+    pts.forEach((p, i) => {
+      const x = p.x + n.nx * (off + wob), y = p.y + n.ny * (off + wob);
+      i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
+    });
+    ctx.strokeStyle = style; ctx.lineWidth = w; ctx.stroke();
+  };
+  draw(1.5, 'rgba(20,10,40,0.6)', 7);            // shadow
+  draw(1.5, '#ff5fa6', 6);                        // rubber band
+  draw(0.2, 'rgba(255,210,235,0.85)', 1.6);       // highlight
+  ctx.restore();
+}
+
+function drawRottedRail(ctx, span) {
+  const pts = crest(span);
+  const n = span.faces[1];
+  ctx.save();
+  ctx.lineCap = 'butt'; ctx.lineJoin = 'round';
+  // base rotted wood band
+  ctx.beginPath();
+  pts.forEach((p, i) => { i === 0 ? ctx.moveTo(p.x + n.nx, p.y + n.ny) : ctx.lineTo(p.x + n.nx, p.y + n.ny); });
+  ctx.strokeStyle = '#4a3a22'; ctx.lineWidth = 6; ctx.stroke();
+  ctx.strokeStyle = 'rgba(30,24,12,0.9)'; ctx.lineWidth = 6; ctx.setLineDash([5, 4]); ctx.stroke();
+  ctx.setLineDash([]);
+  // patches of moss/decay
+  const seg = (a, b, f) => ({ x: a.x + (b.x - a.x) * f, y: a.y + (b.y - a.y) * f });
+  for (let i = 0; i < 5; i++) {
+    const a = pts[i % (pts.length - 1)], b = pts[(i % (pts.length - 1)) + 1];
+    const c = seg(a, b, rnd(i + 2));
+    ctx.beginPath(); ctx.arc(c.x + n.nx, c.y + n.ny, 2 + rnd(i + 7) * 1.5, 0, Math.PI * 2);
+    ctx.fillStyle = i % 2 ? 'rgba(70,90,40,0.7)' : 'rgba(20,16,8,0.8)'; ctx.fill();
+  }
+  ctx.restore();
+}
+
+function glyph(ctx, emoji, x, y, size, alpha) {
+  ctx.save();
+  ctx.globalAlpha = alpha == null ? 1 : alpha;
+  ctx.font = `${size}px sans-serif`;
+  ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+  ctx.fillText(emoji, x, y);
+  ctx.restore();
+}
+
+// Status badges drawn OVER the balls: per-ball weight markers + cue-ball effect
+// glyphs (turbo bolt, roid, cool, oil, reverse, sticky, drunk). Kept on top so
+// they read clearly while the zone art sits beneath the balls.
+export function drawEffectBadges(ctx, state) {
+  const e = state.activeEffects || {};
+  const r = unitsFor(state.dims).ballR;
+  const t = performance.now();
+
+  for (const b of state.balls) {
+    if (b.pocketed || e.cloaked === b.num) continue;
+    if (!b.heavyweight && !b.lightweight) continue;
+    let p = toPx({ u: b.u, v: b.v }, state.dims);
+    if (e.mirror && b.num !== 0) p = { x: state.dims.w - p.x, y: p.y };
+    glyph(ctx, b.heavyweight ? '🏋️' : '🪶', p.x, p.y + r * 1.35, r * 0.95, 0.95);
+  }
+
+  const cue = state.balls.find((b) => b.num === 0 && !b.pocketed);
+  if (!cue || e.cloaked === 0) return;
+  let p = toPx({ u: cue.u, v: cue.v }, state.dims);
+  const cr = r * (cue.size || 1);
+  if (e.turbo) drawBolt(ctx, p.x, p.y, cr, t);
+
+  const badges = [];
+  if (e.roidRage) badges.push('💢');
+  if (e.coolHands) badges.push('🧊');
+  if (e.oilCue) badges.push('💧');
+  if (e.reverseSpin) badges.push('↩️');
+  if (e.sticky) badges.push('🍯');
+  if (e.drunk) badges.push('🍺');
+  badges.forEach((g, i) => {
+    const x = p.x + (i - (badges.length - 1) / 2) * cr * 0.95;
+    glyph(ctx, g, x, p.y - cr * 1.7, cr * 0.85, 0.96);
+  });
+}
+
+// A glowing lightning bolt on the cue ball for Turbo.
+function drawBolt(ctx, x, y, r, t) {
+  const flick = 0.55 + 0.45 * Math.abs(Math.sin(t / 110));
+  const s = r * 1.05;
+  ctx.save();
+  ctx.translate(x, y);
+  ctx.globalAlpha = flick;
+  ctx.beginPath();
+  ctx.moveTo(0.06 * s, -0.62 * s);
+  ctx.lineTo(-0.26 * s, 0.06 * s);
+  ctx.lineTo(-0.02 * s, 0.06 * s);
+  ctx.lineTo(-0.12 * s, 0.62 * s);
+  ctx.lineTo(0.30 * s, -0.16 * s);
+  ctx.lineTo(0.05 * s, -0.16 * s);
+  ctx.closePath();
+  ctx.fillStyle = '#ffe23a';
+  ctx.shadowColor = '#fff27a'; ctx.shadowBlur = 9;
+  ctx.fill();
+  ctx.shadowBlur = 0;
+  ctx.lineWidth = 1; ctx.strokeStyle = '#9a7400'; ctx.stroke();
+  ctx.restore();
 }
 
 // Highlights shown while the player is making a card target pick.

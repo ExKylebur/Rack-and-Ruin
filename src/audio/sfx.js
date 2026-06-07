@@ -223,6 +223,41 @@
         this.tone({ type: 'triangle', freq: 80, freqTo: 40, duration: 0.18, level: 0.18 });
         return;
       }
+      // Thematic cues for the rest.
+      switch (id) {
+        case 'turbo': this.zap(0.7); return;
+        case 'crosswind': this.whoosh(0.6); return;
+        case 'ice_patch': case 'cool_hands': this.freeze(0.6); return;
+        case 'mud_patch': this.squelch(0.7); return;
+        case 'magnet': this.hum(0.6); return;
+        case 'oil_cue': this.drip(0.6); return;
+        case 'sticky': this.squelch(0.4); return;
+        case 'bouncer': this.boing(0.5); return;
+        case 'roid_rage':
+          this.tone({ type: 'sawtooth', freq: 110, freqTo: 240, duration: 0.22, level: 0.16 });
+          this.tone({ type: 'square', freq: 220, freqTo: 330, duration: 0.16, level: 0.08, delay: 0.04 });
+          return;
+        case 'reverse_spin':
+          this.tone({ type: 'triangle', freq: 700, freqTo: 240, duration: 0.18, level: 0.13 });
+          return;
+        case 'drunk':
+          this.tone({ type: 'sine', freq: 300, freqTo: 250, duration: 0.3, level: 0.13 });
+          this.tone({ type: 'sine', freq: 307, freqTo: 243, duration: 0.3, level: 0.1, delay: 0.01 }); // detuned wobble
+          return;
+        case 'big_ball': this.tone({ type: 'sine', freq: 180, freqTo: 90, duration: 0.2, level: 0.16 }); return;
+        case 'small_ball': this.tone({ type: 'sine', freq: 520, freqTo: 1040, duration: 0.14, level: 0.12 }); return;
+        case 'heavyweight': this.tone({ type: 'triangle', freq: 130, freqTo: 70, duration: 0.2, level: 0.16 }); return;
+        case 'lightweight': this.tone({ type: 'sine', freq: 760, freqTo: 1180, duration: 0.14, level: 0.1 }); return;
+        case 'fog_of_war': this.whoosh(0.35); return;
+        case 'cloak': this.tone({ type: 'sine', freq: 600, freqTo: 180, duration: 0.22, level: 0.12 }); return;
+        case 'confusion':
+          this.tone({ type: 'sine', freq: 500, freqTo: 620, duration: 0.1, level: 0.1 });
+          this.tone({ type: 'sine', freq: 420, freqTo: 320, duration: 0.12, level: 0.09, delay: 0.05 });
+          return;
+        case 'mirror': this.tone({ type: 'triangle', freq: 880, freqTo: 880, duration: 0.12, level: 0.1 }); return;
+        case 'shortsighted': this.tone({ type: 'sine', freq: 320, freqTo: 200, duration: 0.16, level: 0.1 }); return;
+        default: break;
+      }
       // Default card cue.
       this.noiseBurst({ duration: 0.04, level: 0.08, hp: 700, lp: 4600 });
       this.tone({ type: 'sine', freq: 520, freqTo: 820, duration: 0.08, level: 0.1, delay: 0.01 });
@@ -246,6 +281,50 @@
       this.noiseBurst({ duration: 0.03, level: 0.16 + lv * 0.16, hp: 1200, lp: 8200 });
       this.tone({ type: 'square', freq: 1120, freqTo: 510, duration: 0.1, level: 0.08 + lv * 0.11 });
       this.tone({ type: 'triangle', freq: 770, freqTo: 250, duration: 0.12, level: 0.08 + lv * 0.1, delay: 0.015 });
+    }
+
+    // Electric crackle for Turbo.
+    zap(level) {
+      const lv = clamp(level == null ? 0.6 : level, 0, 1);
+      this.tone({ type: 'square', freq: 1600, freqTo: 220, duration: 0.12, level: 0.06 + lv * 0.1 });
+      this.tone({ type: 'sawtooth', freq: 900, freqTo: 2600, duration: 0.08, level: 0.05 + lv * 0.08, delay: 0.02 });
+      this.noiseBurst({ duration: 0.05, level: 0.08 + lv * 0.12, hp: 2500, lp: 12000, delay: 0.01 });
+    }
+
+    // Airy gust for Crosswind / Fog.
+    whoosh(level) {
+      const lv = clamp(level == null ? 0.5 : level, 0, 1);
+      this.noiseBurst({ duration: 0.34, level: 0.06 + lv * 0.12, hp: 500, lp: 2600 });
+      this.noiseBurst({ duration: 0.24, level: 0.04 + lv * 0.08, hp: 900, lp: 5200, delay: 0.06 });
+    }
+
+    // Shimmering descent for Ice / Cool Hands.
+    freeze(level) {
+      const lv = clamp(level == null ? 0.5 : level, 0, 1);
+      [1400, 1750, 2100].forEach((f, i) => this.tone({
+        type: 'sine', freq: f, freqTo: f * 0.55, duration: 0.26, level: 0.05 + lv * 0.06, delay: i * 0.04,
+      }));
+      this.noiseBurst({ duration: 0.1, level: 0.03 + lv * 0.05, hp: 4000, lp: 13000, delay: 0.02 });
+    }
+
+    // Wet squelch for Mud / Sticky.
+    squelch(level) {
+      const lv = clamp(level == null ? 0.5 : level, 0, 1);
+      this.tone({ type: 'sine', freq: 240, freqTo: 90, duration: 0.16, level: 0.08 + lv * 0.1 });
+      this.noiseBurst({ duration: 0.12, level: 0.05 + lv * 0.08, hp: 180, lp: 900 });
+    }
+
+    // Low magnetic hum for Magnet.
+    hum(level) {
+      const lv = clamp(level == null ? 0.5 : level, 0, 1);
+      this.tone({ type: 'sine', freq: 90, freqTo: 90, duration: 0.4, level: 0.08 + lv * 0.1 });
+      this.tone({ type: 'sine', freq: 91.5, freqTo: 91.5, duration: 0.4, level: 0.06 + lv * 0.08 }); // beat
+    }
+
+    // A single oily drip for Oil Cue.
+    drip(level) {
+      const lv = clamp(level == null ? 0.5 : level, 0, 1);
+      this.tone({ type: 'sine', freq: 900, freqTo: 320, duration: 0.14, level: 0.07 + lv * 0.1 });
     }
   }
 
