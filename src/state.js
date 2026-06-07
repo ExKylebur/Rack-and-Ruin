@@ -28,6 +28,7 @@ export function createGameState() {
     version: 0,
     started: false,
     gameOver: false,
+    broken: false,         // has the opening break been taken?
     variant: 'eight',
     dims: { w: 0, h: 0 },
     balls: [],

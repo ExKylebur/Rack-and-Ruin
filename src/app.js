@@ -17,6 +17,7 @@ import {
 } from './physics.js';
 import { CARD_POOL, cardById } from './cards/registry.js';
 import { applyCard, clearBallEffects, decayTableEffects } from './cards/effects.js';
+import { evaluateTurn, nextPlayer, commitmentLabel } from './rules/index.js';
 
 const MAX_HAND = 7;
 const DRAW_PER_TURN = 3;
@@ -136,6 +137,8 @@ function onRackUp() {
 function startGame() {
   state.started = true;
   state.gameOver = false;
+  state.broken = false;
+  state.players.forEach((p) => { p.group = null; });
   state.movedPockets = {};
   state.activeEffects = {};
   state.pocketState = {};
@@ -220,6 +223,7 @@ function shoot(power, angle) {
   sim = makeSim(state);
   applyShot(sim, power, angle, state.activeEffects);
   state.turn = freshTurn();
+  state.turn.isBreak = !state.broken;
   ballsMoving = true;
   lastPhysTime = performance.now();
   const env = { effects: state.activeEffects, pocketState: state.pocketState };
@@ -244,28 +248,39 @@ function shoot(power, angle) {
   physLoop = requestAnimationFrame(tick);
 }
 
-// Simplified turn resolution (full ruleset comes in Phase 3). On a lost turn the
+// Full per-variant turn resolution via the rules engine. On a lost turn the
 // shooter gets a card phase to sabotage the incoming player, then play passes.
 function resolveShot() {
   const t = state.turn;
-  const pottedObject = t.pocketed.filter((n) => n !== 0);
   const shooter = state.currentPlayer;
-  const keep = !t.cueScratched && pottedObject.length > 0;
 
-  clearBallEffects(state); // ball/cue effects last exactly one shot
+  clearBallEffects(state);           // ball/cue effects last exactly one shot
+  const res = evaluateTurn(state, t); // may assign groups; returns the outcome
+  state.broken = true;
   if (t.cueScratched) respotCue();
+  (res.respot || []).forEach(respotBall);
 
-  if (keep) {
-    setStatus(`${current().name} pots ${pottedObject.join(', ')} — shoot again`);
+  if (res.gameOver) {
+    updatePlayers(); updateEffects(); render();
+    showGameOver(res.reason);
+    return;
+  }
+
+  if (res.keepTurn) {
+    setStatus(res.message);
     updatePlayers(); updateEffects(); render();
     return;
   }
 
   const proceed = () => {
     decayTableEffects(state);
-    advancePlayer();
-    if (t.cueScratched) { placingCue = true; setStatus(`Scratch — ${current().name}: place the cue ball, then shoot`); }
-    else setStatus(`${current().name}'s turn`);
+    state.currentPlayer = nextPlayer(state);
+    if (res.ballInHand || t.cueScratched) {
+      placingCue = true;
+      setStatus(`${current().name}: ball in hand — place the cue ball, then shoot`);
+    } else {
+      setStatus(`${current().name}'s turn`);
+    }
     updatePlayers(); updateEffects(); updateHand(); render();
   };
 
@@ -274,9 +289,6 @@ function resolveShot() {
 }
 
 function current() { return state.players[state.currentPlayer]; }
-function advancePlayer() {
-  state.currentPlayer = (state.currentPlayer + 1) % state.players.length;
-}
 
 function respotCue() {
   const cue = state.balls.find((b) => b.num === 0);
@@ -285,6 +297,31 @@ function respotCue() {
   const pa = playArea(state.dims);
   const rel = toRel({ x: pa.left + pa.w * 0.25, y: pa.cy }, state.dims);
   cue.u = rel.u; cue.v = rel.v; cue.vx = 0; cue.vy = 0;
+}
+
+// Re-spot a pocketed ball near the foot spot (nudges to a free nearby cell).
+function respotBall(num) {
+  const b = state.balls.find((x) => x.num === num);
+  if (!b) return;
+  b.pocketed = false; b.vx = 0; b.vy = 0;
+  const base = { u: 0.75, v: 0.5 };
+  const r = unitsFor(state.dims).ballR;
+  for (let i = 0; i < 40; i++) {
+    const cand = { u: base.u, v: base.v + (i % 2 ? -1 : 1) * 0.04 * Math.ceil(i / 2) };
+    const px = toPx(cand, state.dims);
+    const clash = state.balls.some((o) => o !== b && !o.pocketed && Math.hypot(...sub(toPx({ u: o.u, v: o.v }, state.dims), px)) < r * 2);
+    if (!clash) { b.u = Math.max(0.03, Math.min(0.97, cand.u)); b.v = Math.max(0.05, Math.min(0.95, cand.v)); return; }
+  }
+  b.u = base.u; b.v = base.v;
+}
+const sub = (a, b) => [a.x - b.x, a.y - b.y];
+
+function showGameOver(reason) {
+  state.gameOver = true;
+  if (idleAnim) { cancelAnimationFrame(idleAnim); idleAnim = null; }
+  document.getElementById('overlayTitle').textContent = '🎱 Game Over!';
+  document.getElementById('overlayMsg').textContent = reason || 'Game over!';
+  document.getElementById('overlay').classList.remove('hidden');
 }
 
 function overlapsAnyBall(u, v, self) {
@@ -529,9 +566,10 @@ function updatePlayers() {
   state.players.forEach((p, i) => {
     const row = document.createElement('div');
     row.className = 'player-row' + (i === state.currentPlayer ? ' active-turn' : '');
+    const label = state.started ? commitmentLabel(state, i) : '';
     row.innerHTML = `<div class="player-swatch" style="background:${swatch[i] || '#888'}"></div>`
-      + `<div class="player-name">${p.name}${p.group ? ` (${p.group})` : ''}</div>`
-      + '<div class="player-score"></div>';
+      + `<div class="player-name">${p.name}</div>`
+      + `<div class="player-score">${label}</div>`;
     el.appendChild(row);
   });
 }
@@ -633,6 +671,15 @@ function boot() {
     start: onRackUp,
     shoot: (power, angle) => { aimAngle = angle; shoot(power, angle); },
     isMoving: () => ballsMoving,
+    // headless shot: simulate to rest synchronously, then resolve (rAF-independent)
+    simShot: (power, angle) => {
+      sim = makeSim(state);
+      applyShot(sim, power, angle, state.activeEffects);
+      state.turn = freshTurn(); state.turn.isBreak = !state.broken;
+      let f = 0; while (step(sim, pocketsFor(state), 1, state.turn, { effects: state.activeEffects, pocketState: state.pocketState }) && f < 6000) f++;
+      commit(state, sim); ballsMoving = false; resolveShot(); render();
+      return { status: document.getElementById('statusMsg').textContent, groups: state.players.map((p) => p.group), pocketed: state.balls.filter((b) => b.pocketed).map((b) => b.num) };
+    },
     moveHole(i, u, v) { state.movedPockets[i] = { u, v }; render(); },
     setSize(num, size) { const b = state.balls.find((x) => x.num === num); if (b) { b.size = size; render(); } },
     // card-phase debug
