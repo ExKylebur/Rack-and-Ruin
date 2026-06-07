@@ -6,7 +6,8 @@
 // simple: pot a ball to keep shooting, otherwise the turn passes; a scratch
 // re-spots the cue and passes the turn.
 
-import { createGameState, rackBalls } from './state.js';
+import { createGameState, rackBalls, serializeSnapshot, applySnapshot } from './state.js';
+import * as online from './online/client.js';
 import { fitCanvas, playArea, pocketLayout, toPx, toRel, unitsFor } from './geometry.js';
 import { drawTable } from './render/table.js';
 import { drawBall } from './render/ball.js';
@@ -29,7 +30,6 @@ const state = createGameState();
 // runtime (non-serialized) UI/loop flags
 let controlMode = 'mouse';
 let onlineMode = 'local';
-let cardsEnabled = true;
 let ballsMoving = false;
 let aimAngle = 0;
 let shotPower = 0;
@@ -124,14 +124,19 @@ function variantPlayerCount(v) {
 function onRackUp() {
   state.variant = document.getElementById('variantSelect').value;
   controlMode = document.getElementById('modeMouseBtn').classList.contains('active') ? 'mouse' : 'phone';
-  cardsEnabled = document.getElementById('enableCards').checked;
+  state.cardsEnabled = document.getElementById('enableCards').checked;
   const names = ['p1name', 'p2name', 'p3name', 'p4name'].map((id, i) =>
     document.getElementById(id).value || `Player ${i + 1}`);
+  if (onlineMode === 'online') {
+    if (!online.onlineState().connected) { showToast('Create or join a room first'); return; }
+    if (online.onlineState().seat !== 0) { showToast('Only the host (Player 1) racks up'); return; }
+  }
   const n = variantPlayerCount(state.variant);
   state.players = [];
   for (let i = 0; i < n; i++) state.players.push({ name: names[i], group: null, hand: [], seat: i });
   state.currentPlayer = 0;
   startGame();
+  if (onlineMode === 'online') { setStatus(isMyTurn() ? 'Your break' : 'Opponent breaks'); maybePush(); }
 }
 
 function startGame() {
@@ -192,6 +197,7 @@ function setOnlineMode(mode) {
 // ===================== SHOOTING =====================
 function beginCharge() {
   if (ballsMoving || !state.started || state.gameOver || placingCue) return;
+  if (!isMyTurn() || cardPhaseActive || pendingPick) return;
   charging = true;
   chargeStart = performance.now();
   const loop = () => {
@@ -248,6 +254,18 @@ function shoot(power, angle) {
   physLoop = requestAnimationFrame(tick);
 }
 
+// Online helpers: is it this client's turn, and push the authoritative snapshot.
+function isMyTurn() {
+  if (onlineMode !== 'online') return true;
+  return online.onlineState().seat === state.currentPlayer && !state.gameOver;
+}
+function maybePush() {
+  if (onlineMode !== 'online') return;
+  const snap = serializeSnapshot(state);
+  state.version = snap.version;
+  online.pushSnapshot(snap);
+}
+
 // Full per-variant turn resolution via the rules engine. On a lost turn the
 // shooter gets a card phase to sabotage the incoming player, then play passes.
 function resolveShot() {
@@ -263,28 +281,29 @@ function resolveShot() {
   if (res.gameOver) {
     updatePlayers(); updateEffects(); render();
     showGameOver(res.reason);
+    maybePush();
     return;
   }
 
   if (res.keepTurn) {
     setStatus(res.message);
     updatePlayers(); updateEffects(); render();
+    maybePush();
     return;
   }
 
   const proceed = () => {
     decayTableEffects(state);
     state.currentPlayer = nextPlayer(state);
-    if (res.ballInHand || t.cueScratched) {
-      placingCue = true;
-      setStatus(`${current().name}: ball in hand — place the cue ball, then shoot`);
-    } else {
-      setStatus(`${current().name}'s turn`);
-    }
+    state.ballInHand = !!(res.ballInHand || t.cueScratched);
+    placingCue = state.ballInHand && isMyTurn();
+    if (state.ballInHand) setStatus(`${current().name}: ball in hand — place the cue ball, then shoot`);
+    else setStatus(`${current().name}'s turn`);
     updatePlayers(); updateEffects(); updateHand(); render();
+    maybePush();
   };
 
-  if (cardsEnabled) beginCardPhase(shooter, proceed);
+  if (state.cardsEnabled) beginCardPhase(shooter, proceed);
   else proceed();
 }
 
@@ -318,9 +337,10 @@ const sub = (a, b) => [a.x - b.x, a.y - b.y];
 
 function showGameOver(reason) {
   state.gameOver = true;
+  state.gameOverReason = reason || state.gameOverReason || 'Game over!';
   if (idleAnim) { cancelAnimationFrame(idleAnim); idleAnim = null; }
   document.getElementById('overlayTitle').textContent = '🎱 Game Over!';
-  document.getElementById('overlayMsg').textContent = reason || 'Game over!';
+  document.getElementById('overlayMsg').textContent = state.gameOverReason;
   document.getElementById('overlay').classList.remove('hidden');
 }
 
@@ -336,6 +356,7 @@ function overlapsAnyBall(u, v, self) {
 }
 
 function placeCueAt(px, py) {
+  if (!isMyTurn()) return;
   const cue = state.balls.find((b) => b.num === 0);
   if (!cue) return;
   const pa = playArea(state.dims);
@@ -346,6 +367,7 @@ function placeCueAt(px, py) {
   if (overlapsAnyBall(rel.u, rel.v, cue)) { showToast("Can't place there"); return; }
   cue.u = rel.u; cue.v = rel.v;
   placingCue = false;
+  state.ballInHand = false;
   setStatus(`${current().name}'s turn`);
   render();
 }
@@ -641,6 +663,70 @@ function showToast(msg, ms = 1700) {
   setTimeout(() => t.classList.remove('show'), ms);
 }
 
+// ===================== ONLINE =====================
+async function onCreateRoom() {
+  const url = document.getElementById('serverUrlInput').value.trim() || window.location.origin;
+  online.configure(url);
+  const name = document.getElementById('p1name').value || 'Player 1';
+  document.getElementById('onlineStatus').textContent = 'Creating room…';
+  const d = await online.createRoom(name);
+  if (d.code) {
+    document.getElementById('roomCodeInput').value = d.code;
+    document.getElementById('onlineStatus').textContent = `Room ${d.code} — you are the host. Rack up when your opponent joins.`;
+    setInviteUrl(d.code, url);
+    online.startPolling(applyOnlineSnapshot);
+  } else {
+    document.getElementById('onlineStatus').textContent = d.error || 'Could not create room';
+  }
+}
+
+async function onJoinRoom() {
+  const url = document.getElementById('serverUrlInput').value.trim() || window.location.origin;
+  online.configure(url);
+  const code = document.getElementById('roomCodeInput').value.trim();
+  const name = document.getElementById('p2name').value || 'Player 2';
+  if (!code) { showToast('Enter a room code'); return; }
+  document.getElementById('onlineStatus').textContent = 'Joining…';
+  const d = await online.joinRoom(code, name);
+  if (d.token) {
+    document.getElementById('onlineStatus').textContent = `Joined ${code} as Player ${d.seat + 1}. Waiting for the host to rack…`;
+    online.startPolling(applyOnlineSnapshot);
+  } else {
+    document.getElementById('onlineStatus').textContent = d.error || 'Join failed';
+  }
+}
+
+function setInviteUrl(code, serverUrl) {
+  const pub = document.getElementById('onlinePublicUrlInput').value.trim();
+  const base = pub || (window.location.origin + window.location.pathname);
+  let url = `${base}?room=${code}`;
+  if (serverUrl && serverUrl !== window.location.origin) url += `&server=${encodeURIComponent(serverUrl)}`;
+  document.getElementById('inviteUrl').value = url;
+  document.getElementById('inviteRow').style.display = 'flex';
+}
+
+function copyInvite() {
+  const url = document.getElementById('inviteUrl').value;
+  if (url && navigator.clipboard) navigator.clipboard.writeText(url).then(() => showToast('Invite copied!')).catch(() => showToast('Copy failed'));
+}
+
+// Apply an incoming authoritative snapshot from the opponent.
+function applyOnlineSnapshot(snap) {
+  applySnapshot(state, snap);
+  ballsMoving = false; cardPhaseActive = false; pendingPick = null; cardQueue = [];
+  document.getElementById('cardOverlay').classList.add('hidden');
+  if (state.started) { setSetupVisible(false); document.getElementById('shotBtn').classList.toggle('visible', controlMode === 'phone'); }
+  placingCue = state.ballInHand && isMyTurn() && !state.gameOver;
+  if (state.gameOver) {
+    showGameOver(state.gameOverReason);
+  } else if (isMyTurn()) {
+    setStatus(state.ballInHand ? 'Your turn — ball in hand' : 'Your turn');
+  } else {
+    setStatus(`Waiting for ${state.players[state.currentPlayer]?.name || 'opponent'}…`);
+  }
+  updatePlayers(); updateHand(); updateEffects(); render(); startIdleLoop();
+}
+
 // ===================== BOOT =====================
 function boot() {
   canvas = document.getElementById('tableCanvas');
@@ -655,12 +741,18 @@ function boot() {
   document.getElementById('newGameBtn').addEventListener('click', onNewGame);
   window.addEventListener('resize', () => { sizeCanvas(); render(); });
 
+  // Invite link: ?room=CODE[&server=URL] pre-fills and switches to online.
+  const params = new URLSearchParams(window.location.search);
+  if (params.get('room')) {
+    document.getElementById('roomCodeInput').value = params.get('room').toUpperCase();
+    if (params.get('server')) document.getElementById('serverUrlInput').value = params.get('server');
+    setOnlineMode('online');
+  }
+
   // inline-onclick handlers used by PLAY ME.html
   Object.assign(window, {
     onRackUp, onNewGame, setControlMode, setOnlineMode,
-    onCreateRoom: () => showToast('Online play arrives in a later update.'),
-    onJoinRoom: () => showToast('Online play arrives in a later update.'),
-    copyInvite: () => {},
+    onCreateRoom, onJoinRoom, copyInvite,
     onCardPhaseDone, onCardPhaseSkip,
     onConfirmYes: () => {}, onConfirmNo: () => {},
   });

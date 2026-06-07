@@ -12,7 +12,7 @@ import string
 import threading
 import time
 import subprocess
-from http.server import BaseHTTPRequestHandler, HTTPServer
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import urlparse, parse_qs
 
 REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -298,7 +298,9 @@ if __name__ == '__main__':
     if args.auto_public_tunnel:
         start_tunnel_async()
 
-    httpd = HTTPServer(('0.0.0.0', args.port), Handler)
+    # Threaded so a 25s long-poll on /api/state never blocks other requests.
+    httpd = ThreadingHTTPServer(('0.0.0.0', args.port), Handler)
+    httpd.daemon_threads = True
     try:
         httpd.serve_forever()
     except KeyboardInterrupt:

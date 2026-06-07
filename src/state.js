@@ -28,7 +28,10 @@ export function createGameState() {
     version: 0,
     started: false,
     gameOver: false,
+    gameOverReason: '',
     broken: false,         // has the opening break been taken?
+    ballInHand: false,     // incoming player may place the cue anywhere
+    cardsEnabled: true,
     variant: 'eight',
     dims: { w: 0, h: 0 },
     balls: [],
@@ -134,13 +137,18 @@ export function rackBalls(state) {
 // card pool by id only. Card ids must stay stable across versions.
 export function serializeSnapshot(state) {
   return {
-    version: state.version + 1,
+    version: (state.version || 0) + 1,
     started: state.started,
     gameOver: state.gameOver,
+    gameOverReason: state.gameOverReason || '',
+    broken: state.broken,
+    ballInHand: state.ballInHand,
+    cardsEnabled: state.cardsEnabled,
     variant: state.variant,
     balls: state.balls.map((b) => ({
       num: b.num, u: b.u, v: b.v, size: b.size, stripe: b.stripe,
       pocketed: b.pocketed,
+      heavyweight: !!b.heavyweight, lightweight: !!b.lightweight,
     })),
     movedPockets: state.movedPockets,
     pocketState: state.pocketState,
@@ -152,4 +160,33 @@ export function serializeSnapshot(state) {
     currentPlayer: state.currentPlayer,
     activeEffects: state.activeEffects,
   };
+}
+
+// Apply a received snapshot onto the live state (replaces the table & turn). Pure
+// data — UI/render is the caller's job.
+export function applySnapshot(state, snap) {
+  state.version = snap.version;
+  state.started = snap.started;
+  state.gameOver = snap.gameOver;
+  state.gameOverReason = snap.gameOverReason || '';
+  state.broken = snap.broken;
+  state.ballInHand = snap.ballInHand;
+  if (snap.cardsEnabled !== undefined) state.cardsEnabled = snap.cardsEnabled;
+  state.variant = snap.variant;
+  state.balls = snap.balls.map((b) => ({
+    num: b.num, u: b.u, v: b.v, vx: 0, vy: 0, size: b.size ?? 1,
+    c: BALL_COLORS[b.num] || '#cccccc', stripe: b.stripe, roll: 0,
+    pocketed: b.pocketed, heavyweight: !!b.heavyweight, lightweight: !!b.lightweight,
+  }));
+  state.movedPockets = snap.movedPockets || {};
+  state.pocketState = snap.pocketState || {};
+  state.warp = snap.warp || null;
+  state.activeEffects = snap.activeEffects || {};
+  state.currentPlayer = snap.currentPlayer;
+  (snap.players || []).forEach((sp, i) => {
+    if (!state.players[i]) state.players[i] = { name: sp.name, seat: i };
+    state.players[i].name = sp.name;
+    state.players[i].group = sp.group;
+    state.players[i].hand = (sp.hand || []).slice();
+  });
 }
