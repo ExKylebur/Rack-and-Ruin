@@ -343,6 +343,48 @@ body {
   margin-bottom: 12px;
 }
 
+/* ---- Card phase: sections + play tray ---- */
+.card-section {
+  margin-bottom: 8px;
+}
+.card-section-title {
+  font-size: 11px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: #8aa6c8;
+  margin: 4px 0 6px;
+}
+.card-section .card-grid {
+  max-height: 200px;
+  margin-bottom: 4px;
+}
+#cardPlayTray {
+  border-top: 1px solid #1a4a7a;
+  margin-top: 6px;
+  padding-top: 8px;
+}
+#cardPlayTray .card-section-title {
+  color: #ffd76a;
+}
+#cardPlayGrid {
+  max-height: 160px;
+  min-height: 40px;
+}
+.card-empty {
+  font-size: 11px;
+  color: #556;
+  font-style: italic;
+}
+.card-pick-item.playing {
+  background: #14361b;
+  border-color: #4aff7a;
+}
+.card-pick-item.disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+  pointer-events: none;
+}
+
 .card-pick-item {
   padding: 10px;
   background: #0d2137;

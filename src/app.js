@@ -45,7 +45,7 @@ let placingCue = false; // ball-in-hand after a scratch
 
 // card-phase runtime
 let cardPhaseActive = false;
-let cardSelected = [];      // card ids selected to play
+let phaseCards = [];        // [{ id, slot, isNew, playing }] during a card phase
 let pendingPick = null;     // { type, prompt } currently awaited on the table
 let cardQueue = [];         // [{ id, opts, steps:[...] }] being resolved
 let cardPhaseDone = null;   // callback to run when the card phase + picks finish
@@ -153,7 +153,7 @@ function startGame() {
   state.players.forEach((p) => { p.hand = []; });
   placingCue = false;
   ballsMoving = false;
-  cardPhaseActive = false; pendingPick = null; cardSelected = []; cardQueue = [];
+  cardPhaseActive = false; pendingPick = null; phaseCards = []; cardQueue = [];
   document.getElementById('cardOverlay').classList.add('hidden');
   setSetupVisible(false);
   document.getElementById('overlay').classList.add('hidden');
@@ -398,10 +398,22 @@ function drawCards(player) {
   const slots = MAX_HAND - player.hand.length;
   const toDraw = Math.min(DRAW_PER_TURN, slots);
   const drawn = [];
+  const used = new Set();
+  // Pick a random id from `pool` that hasn't been drawn yet this offering, so a
+  // single draw never contains duplicate cards.
+  const pickUnique = (pool) => {
+    const choices = pool.filter((c) => !used.has(c.id));
+    if (!choices.length) return null;
+    const id = choices[Math.floor(Math.random() * choices.length)].id;
+    used.add(id);
+    return id;
+  };
   const ball = CARD_POOL.filter((c) => c.type === 'ball');
   const table = CARD_POOL.filter((c) => c.type === 'table');
-  if (toDraw >= 2) { drawn.push(ball[Math.floor(Math.random() * ball.length)].id); drawn.push(table[Math.floor(Math.random() * table.length)].id); }
-  while (drawn.length < toDraw) drawn.push(CARD_POOL[Math.floor(Math.random() * CARD_POOL.length)].id);
+  // Lead with a ball card + a table card for variety, then fill from the whole pool.
+  if (toDraw >= 1) { const id = pickUnique(ball); if (id) drawn.push(id); }
+  if (toDraw >= 2) { const id = pickUnique(table); if (id) drawn.push(id); }
+  while (drawn.length < toDraw) { const id = pickUnique(CARD_POOL); if (!id) break; drawn.push(id); }
   shuffle(drawn);
   for (const id of drawn) if (player.hand.length < MAX_HAND) player.hand.push(id);
   return drawn;
@@ -411,43 +423,74 @@ function beginCardPhase(playerIdx, onDone) {
   cardPhaseDone = onDone;
   state.cardPhasePlayer = playerIdx;
   const player = state.players[playerIdx];
+  const oldLen = player.hand.length;
   const drawn = drawCards(player);
   if (!player.hand.length) { state.cardPhasePlayer = null; cardPhaseDone = null; onDone(); return; }
-  cardPhaseActive = true; cardSelected = [];
+  cardPhaseActive = true;
+  // Snapshot the hand into clickable cards; slots >= oldLen are this turn's draw.
+  phaseCards = player.hand.map((id, slot) => ({ id, slot, isNew: slot >= oldLen, playing: false }));
   document.getElementById('cardPhasePlayerName').textContent = player.name;
   document.getElementById('cardPlayLimit').textContent = PLAY_PER_TURN;
-  document.getElementById('cardDrawInfo').textContent = drawn.length ? `Drew ${drawn.map((id) => cardById(id).name).join(', ')}.` : '';
-  buildCardGrid(player.hand);
+  document.getElementById('cardPlayLimit2').textContent = PLAY_PER_TURN;
+  document.getElementById('cardDrawInfo').textContent =
+    drawn.length ? `Drew ${drawn.length} new card${drawn.length > 1 ? 's' : ''}.` : 'Hand full — no new cards.';
+  buildCardPhaseUI();
   document.getElementById('cardOverlay').classList.remove('hidden');
 }
 
-function buildCardGrid(hand) {
-  const grid = document.getElementById('cardPickGrid');
-  grid.innerHTML = '';
-  hand.forEach((id, i) => {
-    const c = cardById(id);
+// Render the three card areas (Just Drawn / In Hand / Playing). Click-to-play:
+// a click in the first two sections moves a card into the play tray; a click in
+// the tray takes it back. Both are capped at PLAY_PER_TURN.
+function buildCardPhaseUI() {
+  const drawnGrid = document.getElementById('cardDrawnGrid');
+  const heldGrid = document.getElementById('cardHeldGrid');
+  const playGrid = document.getElementById('cardPlayGrid');
+  drawnGrid.innerHTML = ''; heldGrid.innerHTML = ''; playGrid.innerHTML = '';
+
+  const playing = phaseCards.filter((c) => c.playing);
+  const playsLeft = PLAY_PER_TURN - playing.length;
+
+  const makeCard = (c, where) => {
+    const card = cardById(c.id);
     const div = document.createElement('div');
-    div.className = 'card-pick-item';
-    div.dataset.idx = i;
-    div.innerHTML = `<div class="cpicon">${c.icon || ''}</div><div class="cpname">${c.name}</div>`
-      + `<div class="cpdesc">${c.desc}</div><div class="cptag">${c.type}</div>`;
-    div.addEventListener('click', () => {
-      const sel = div.classList.contains('selected');
-      if (sel) { div.classList.remove('selected'); cardSelected.splice(cardSelected.indexOf(i), 1); }
-      else if (cardSelected.length < PLAY_PER_TURN) { div.classList.add('selected'); cardSelected.push(i); }
-    });
-    grid.appendChild(div);
-  });
+    div.className = 'card-pick-item' + (where === 'play' ? ' playing' : '');
+    div.innerHTML = `<div class="cpicon">${card.icon || ''}</div><div class="cpname">${card.name}</div>`
+      + `<div class="cpdesc">${card.desc}</div><div class="cptag">${card.type}</div>`;
+    if (where === 'play') {
+      div.title = 'Click to take back';
+      div.addEventListener('click', () => { c.playing = false; buildCardPhaseUI(); });
+    } else {
+      if (playsLeft <= 0) div.classList.add('disabled');
+      div.addEventListener('click', () => {
+        if (PLAY_PER_TURN - phaseCards.filter((x) => x.playing).length <= 0) return;
+        c.playing = true; buildCardPhaseUI();
+      });
+    }
+    return div;
+  };
+
+  const fill = (grid, cards, where, empty) => {
+    if (!cards.length) { grid.innerHTML = `<span class="card-empty">${empty}</span>`; return; }
+    cards.forEach((c) => grid.appendChild(makeCard(c, where)));
+  };
+  fill(drawnGrid, phaseCards.filter((c) => c.isNew && !c.playing), 'drawn', '— none —');
+  fill(heldGrid, phaseCards.filter((c) => !c.isNew && !c.playing), 'held', '— none —');
+  fill(playGrid, playing, 'play', 'click a card above to play it');
+
+  document.getElementById('cardPlaysCount').textContent = playing.length;
+  document.getElementById('cardDoneBtn').textContent =
+    playing.length ? `Confirm (${playing.length})` : 'Play none';
 }
 
 function onCardPhaseDone() {
   document.getElementById('cardOverlay').classList.add('hidden');
   cardPhaseActive = false;
   const player = state.players[state.cardPhasePlayer];
-  // resolve selected hand indices to ids, remove from hand (high->low to keep indices valid)
-  const ids = cardSelected.map((i) => player.hand[i]).filter(Boolean);
-  cardSelected.slice().sort((a, b) => b - a).forEach((i) => player.hand.splice(i, 1));
-  cardSelected = [];
+  const playSlots = phaseCards.filter((c) => c.playing).map((c) => c.slot);
+  const ids = playSlots.map((slot) => player.hand[slot]).filter(Boolean);
+  // remove played slots high->low so the remaining indices stay valid
+  playSlots.slice().sort((a, b) => b - a).forEach((slot) => player.hand.splice(slot, 1));
+  phaseCards = [];
   cardQueue = ids.map((id) => ({ id, opts: {}, steps: [...(cardById(id).interactions || [])] }));
   updateHand();
   processCardQueue();
@@ -455,7 +498,7 @@ function onCardPhaseDone() {
 
 function onCardPhaseSkip() {
   document.getElementById('cardOverlay').classList.add('hidden');
-  cardPhaseActive = false; cardSelected = [];
+  cardPhaseActive = false; phaseCards = [];
   finishCardPhase();
 }
 
@@ -808,7 +851,7 @@ function boot() {
     pick: () => pendingPick,
     queue: () => cardQueue.map((c) => ({ id: c.id, opts: c.opts, steps: c.steps.length })),
     cardPhaseActive: () => cardPhaseActive,
-    selected: () => cardSelected.slice(),
+    selected: () => phaseCards.filter((c) => c.playing).map((c) => c.id),
     clickRel: (u, v) => { const p = toPx({ u, v }, state.dims); if (pendingPick) resolvePick(p.x, p.y); else if (placingCue) placeCueAt(p.x, p.y); },
   };
 }

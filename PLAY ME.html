@@ -146,13 +146,29 @@
   <div class="modal-box">
     <h2>Card Phase — <span id="cardPhasePlayerName">Player</span></h2>
     <p style="font-size:12px;color:#aaa;margin-bottom:12px;">
-      Select up to <span id="cardPlayLimit">2</span> cards to play, then click Done.
+      Click cards to play them (up to <span id="cardPlayLimit">2</span>) and sabotage the next player.
       <span id="cardDrawInfo" style="color:#ffd700;"></span>
     </p>
-    <div id="cardPickGrid" class="card-grid"></div>
+
+    <div class="card-section">
+      <h4 class="card-section-title">✨ Just Drawn</h4>
+      <div id="cardDrawnGrid" class="card-grid"></div>
+    </div>
+    <div class="card-section">
+      <h4 class="card-section-title">🃏 In Hand</h4>
+      <div id="cardHeldGrid" class="card-grid"></div>
+    </div>
+
+    <div id="cardPlayTray" class="card-tray">
+      <h4 class="card-section-title">
+        🎯 Playing this turn (<span id="cardPlaysCount">0</span>/<span id="cardPlayLimit2">2</span>)
+      </h4>
+      <div id="cardPlayGrid" class="card-grid"></div>
+    </div>
+
     <div style="display:flex;gap:8px;flex-wrap:wrap;">
-      <button class="btn btn-primary" id="cardDoneBtn" onclick="onCardPhaseDone()">Done (Play Selected)</button>
-      <button class="btn btn-secondary" onclick="onCardPhaseSkip()">Skip / Play 0</button>
+      <button class="btn btn-primary" id="cardDoneBtn" onclick="onCardPhaseDone()">Play none</button>
+      <button class="btn btn-secondary" onclick="onCardPhaseSkip()">Skip</button>
     </div>
   </div>
 </div>
