@@ -12,7 +12,7 @@ import { fitCanvas, playArea, pocketLayout, toPx, toRel, unitsFor } from './geom
 import { drawTable } from './render/table.js';
 import { drawBall } from './render/ball.js';
 import { drawAim } from './render/aim.js';
-import { drawEffects, drawPickHighlights, drawFog } from './render/effects.js';
+import { drawEffects, drawPickHighlights, drawFog, drawPlacementGhost } from './render/effects.js';
 import {
   makeSim, pocketsFor, freshTurn, applyShot, step, syncToState, commit,
 } from './physics.js';
@@ -47,6 +47,7 @@ let placingCue = false; // ball-in-hand after a scratch
 let cardPhaseActive = false;
 let phaseCards = [];        // [{ id, slot, isNew, playing }] during a card phase
 let pendingPick = null;     // { type, prompt } currently awaited on the table
+let pickHover = null;       // {x,y} cursor pos for the live placement ghost
 let cardQueue = [];         // [{ id, opts, steps:[...] }] being resolved
 let cardPhaseDone = null;   // callback to run when the card phase + picks finish
 let idleAnim = null;        // low-freq redraw for animated effects/picks
@@ -84,7 +85,10 @@ function render() {
   // Fog of War masks everything but a sight beam down the (swayed) aim line.
   if (canAim && e.fogOfWar) drawFog(ctx, state, aimAngle + sway);
   if (placingCue) drawCuePlacement();
-  if (pendingPick) drawPickHighlights(ctx, state, pendingPick);
+  if (pendingPick) {
+    drawPickHighlights(ctx, state, pendingPick);
+    if (pendingPick.type === 'place') drawPlacementGhost(ctx, state, pendingPick, pickHover, cardQueue[0]?.opts || {});
+  }
 }
 
 // Low-frequency redraw so animated effects (portals, pick rings) move while idle.
@@ -508,6 +512,7 @@ function processCardQueue() {
   if (item.steps.length) {
     const s = item.steps[0];
     pendingPick = { type: s.type, prompt: s.prompt, cardId: item.id };
+    pickHover = null; // ghost appears once the cursor moves over the bed
     setStatus(`${state.players[state.cardPhasePlayer].name}: ${s.prompt}`);
     render();
   } else {
@@ -564,7 +569,7 @@ function resolvePick(x, y) {
 }
 
 function finishCardPhase() {
-  pendingPick = null; cardQueue = [];
+  pendingPick = null; pickHover = null; cardQueue = [];
   const done = cardPhaseDone; cardPhaseDone = null;
   state.cardPhasePlayer = null;
   if (done) done();
@@ -602,7 +607,8 @@ function wireInput() {
   canvas.addEventListener('mousemove', (e) => {
     if (!state.started || ballsMoving) return;
     const pos = canvasPos(e);
-    if (placingCue || pendingPick) { render(); return; }
+    if (pendingPick) { pickHover = pos; render(); return; }
+    if (placingCue) { render(); return; }
     updateAimFromPoint(pos.x, pos.y);
     render();
   });
@@ -621,18 +627,29 @@ function wireInput() {
     if (!state.started || ballsMoving) return;
     e.preventDefault();
     const pos = canvasPos(e.touches[0]);
-    if (pendingPick) { resolvePick(pos.x, pos.y); return; }
+    if (pendingPick) {
+      // 'place' picks preview a ghost under the finger and confirm on release;
+      // ball/pocket/rail picks resolve on tap.
+      if (pendingPick.type === 'place') { pickHover = pos; render(); return; }
+      resolvePick(pos.x, pos.y); return;
+    }
     if (placingCue) { placeCueAt(pos.x, pos.y); return; }
     phoneDragStart = pos; phoneDragging = false;
   }, { passive: false });
   canvas.addEventListener('touchmove', (e) => {
-    if (!state.started || ballsMoving || !phoneDragStart) return;
+    if (!state.started || ballsMoving) return;
     e.preventDefault();
+    if (pendingPick && pendingPick.type === 'place') { pickHover = canvasPos(e.touches[0]); render(); return; }
+    if (!phoneDragStart) return;
     const pos = canvasPos(e.touches[0]);
     if (Math.hypot(pos.x - phoneDragStart.x, pos.y - phoneDragStart.y) > 4) phoneDragging = true;
     if (phoneDragging) { updateAimFromPoint(pos.x, pos.y); render(); }
   }, { passive: false });
-  canvas.addEventListener('touchend', (e) => { e.preventDefault(); phoneDragStart = null; }, { passive: false });
+  canvas.addEventListener('touchend', (e) => {
+    e.preventDefault();
+    if (pendingPick && pendingPick.type === 'place' && pickHover) { resolvePick(pickHover.x, pickHover.y); }
+    phoneDragStart = null;
+  }, { passive: false });
 
   const shotBtn = document.getElementById('shotBtn');
   shotBtn.addEventListener('pointerdown', () => { if (controlMode === 'phone') { shotBtn.classList.add('charging'); beginCharge(); } });

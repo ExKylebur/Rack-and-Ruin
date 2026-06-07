@@ -197,3 +197,67 @@ export function drawPickHighlights(ctx, state, pick) {
   }
   ctx.restore();
 }
+
+// Live preview for a 'place' pick: a ghost of the effect follows the cursor so
+// the player sees exactly what they're about to drop before clicking. `opts`
+// carries the in-progress card options (e.g. already-placed portal positions).
+export function drawPlacementGhost(ctx, state, pick, hover, opts = {}) {
+  if (!pick || pick.type !== 'place' || !hover) return;
+  const u = unitsFor(state.dims);
+  const r = u.ballR;
+  const pa = playArea(state.dims);
+  const x = Math.max(pa.left, Math.min(pa.right, hover.x));
+  const y = Math.max(pa.top, Math.min(pa.bottom, hover.y));
+  const id = pick.cardId;
+
+  const ghostZone = (rad, fill, stroke, emoji) => {
+    ctx.beginPath(); ctx.arc(x, y, rad, 0, Math.PI * 2);
+    ctx.fillStyle = fill; ctx.fill();
+    ctx.strokeStyle = stroke; ctx.lineWidth = 2; ctx.setLineDash([6, 5]); ctx.stroke(); ctx.setLineDash([]);
+    ctx.font = `${r * 1.4}px sans-serif`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.fillText(emoji, x, y);
+  };
+
+  ctx.save();
+  ctx.globalAlpha = 0.7;
+  if (id === 'move_hole') {
+    // A ball under the drop point makes the placement invalid (rejected on click).
+    const onBall = state.balls.some((b) => {
+      if (b.pocketed) return false;
+      const bp = toPx({ u: b.u, v: b.v }, state.dims);
+      return Math.hypot(bp.x - x, bp.y - y) < u.pocketR + r * (b.size || 1);
+    });
+    ctx.beginPath(); ctx.arc(x, y, u.pocketR, 0, Math.PI * 2);
+    ctx.fillStyle = 'rgba(4,4,4,0.7)'; ctx.fill();
+    ctx.strokeStyle = onBall ? 'rgba(255,60,60,0.95)' : 'rgba(255,215,0,0.9)';
+    ctx.lineWidth = 2.5; ctx.setLineDash([6, 5]); ctx.stroke(); ctx.setLineDash([]);
+  } else if (id === 'bouncer') {
+    ctx.beginPath(); ctx.arc(x, y, r * F.bouncer, 0, Math.PI * 2);
+    ctx.fillStyle = 'rgba(192,57,43,0.55)'; ctx.fill();
+    ctx.strokeStyle = 'rgba(255,150,130,0.9)'; ctx.lineWidth = 2; ctx.setLineDash([6, 5]); ctx.stroke(); ctx.setLineDash([]);
+  } else if (id === 'bear_trap') {
+    ctx.font = `${r * 1.8}px sans-serif`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.fillText('🪤', x, y);
+  } else if (id === 'ice_patch') {
+    ghostZone(r * F.ice, 'rgba(180,220,255,0.22)', 'rgba(180,220,255,0.6)', '🧊');
+  } else if (id === 'mud_patch') {
+    ghostZone(r * F.mud, 'rgba(100,60,20,0.4)', 'rgba(140,90,40,0.6)', '💩');
+  } else if (id === 'portal') {
+    // Show any already-placed portal of this pair, linked to the ghost endpoint.
+    const placed = opts.positions || [];
+    if (placed.length) {
+      const p0 = toPx(placed[0], state.dims);
+      ctx.beginPath(); ctx.arc(p0.x, p0.y, r * F.portal, 0, Math.PI * 2);
+      ctx.strokeStyle = 'rgba(120,90,255,0.9)'; ctx.lineWidth = 2; ctx.stroke();
+      ctx.font = `${r * 1.5}px sans-serif`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+      ctx.fillText('🌀', p0.x, p0.y);
+      ctx.strokeStyle = 'rgba(180,150,255,0.5)'; ctx.lineWidth = 1.5; ctx.setLineDash([5, 6]);
+      ctx.beginPath(); ctx.moveTo(p0.x, p0.y); ctx.lineTo(x, y); ctx.stroke(); ctx.setLineDash([]);
+    }
+    ctx.beginPath(); ctx.arc(x, y, r * F.portal, 0, Math.PI * 2);
+    ctx.strokeStyle = 'rgba(255,90,120,0.9)'; ctx.lineWidth = 2; ctx.setLineDash([6, 5]); ctx.stroke(); ctx.setLineDash([]);
+    ctx.font = `${r * 1.5}px sans-serif`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.fillText('🌀', x, y);
+  }
+  ctx.restore();
+}
