@@ -48,7 +48,16 @@ test; the suite grew 39 → 42 (3 new spin tests).
 ## ⭐ NEXT UP
 With the backlog cleared, the open work is the **NOT-yet-verified gaps** below —
 chiefly the **live 2-client online test** (never run with two real browsers) and a
-**per-card playtest** of all 30 cards. The `warp_rail` card is still inert.
+**per-card playtest** of all 30 cards.
+
+**Warp Rail is now implemented** (commit `ff66d6d`, 43 tests): `geometry.warpRail`
+bulges an inward cushion ridge near the anchor pocket; physics adds its faces to
+the cushion set during the shot and render draws the same triangle. `state.warp`
+is now `{ anchor, turns }` (still serialized → online-safe). **For the many more
+cards to come**, this is the pattern: put new geometry in `geometry.js` as a pure
+fn so physics (`physics.js`) and render (`render/*`) derive from one shape, add the
+effect applier in `cards/effects.js` + catalogue entry in `cards/registry.js`, and
+cover it with a `node --test` unit test.
 
 ## How to run
 - **Double-click `launch.bat`** → starts the Python server and opens the browser.
@@ -93,8 +102,8 @@ chiefly the **live 2-client online test** (never run with two real browsers) and
    the invite link, Join. Verify turn-lock, snapshot sync, card sabotage crossing
    over, ball-in-hand, win. Likely small bugs to shake out (e.g., joiner name not
    synced — currently host's snapshot names win; that's a known simplification).
-2. **`warp_rail` card is inert** — sets `state.warp` but physics/render ignore it.
-   Either implement warped rails or repurpose the card.
+2. ~~`warp_rail` card is inert~~ — **DONE** (`ff66d6d`): real warped cushion ridge,
+   physics + render share `geometry.warpRail`.
 3. **Per-card playtest** — only the card *flow* + a few effects were verified in
    browser. Play all 30 and tune feel/visuals (esp. portals, bouncer, magnet).
 4. **rAF throttling gotcha** — the shot loop uses requestAnimationFrame, which the
