@@ -46,7 +46,8 @@ let placingCue = false; // ball-in-hand after a scratch
 
 // card-phase runtime
 let cardPhaseActive = false;
-let phaseCards = [];        // [{ id, slot, isNew, playing }] during a card phase
+let phaseCards = [];        // [{ id, isNew }] shown in the card-phase overlay
+let cardPhasePlaysLeft = 0; // remaining plays this card phase
 let pendingPick = null;     // { type, prompt } currently awaited on the table
 let pickHover = null;       // {x,y} cursor pos for the live placement ghost
 let cardQueue = [];         // [{ id, opts, steps:[...] }] being resolved
@@ -175,7 +176,7 @@ function startGame() {
   placingCue = false;
   ballsMoving = false;
   spin = { x: 0, y: 0 }; updateSpinDial();
-  cardPhaseActive = false; pendingPick = null; phaseCards = []; cardQueue = [];
+  cardPhaseActive = false; pendingPick = null; phaseCards = []; cardPhasePlaysLeft = 0; cardQueue = [];
   document.getElementById('cardOverlay').classList.add('hidden');
   setSetupVisible(false);
   document.getElementById('overlay').classList.add('hidden');
@@ -450,83 +451,86 @@ function beginCardPhase(playerIdx, onDone) {
   const drawn = drawCards(player);
   if (!player.hand.length) { state.cardPhasePlayer = null; cardPhaseDone = null; onDone(); return; }
   cardPhaseActive = true;
-  // Snapshot the hand into clickable cards; slots >= oldLen are this turn's draw.
-  phaseCards = player.hand.map((id, slot) => ({ id, slot, isNew: slot >= oldLen, playing: false }));
+  cardPhasePlaysLeft = PLAY_PER_TURN;
+  // Snapshot the hand into clickable cards; the last `drawn.length` are new.
+  phaseCards = player.hand.map((id, slot) => ({ id, isNew: slot >= oldLen }));
   document.getElementById('cardPhasePlayerName').textContent = player.name;
   document.getElementById('cardPlayLimit').textContent = PLAY_PER_TURN;
-  document.getElementById('cardPlayLimit2').textContent = PLAY_PER_TURN;
   document.getElementById('cardDrawInfo').textContent =
     drawn.length ? `Drew ${drawn.length} new card${drawn.length > 1 ? 's' : ''}.` : 'Hand full — no new cards.';
   buildCardPhaseUI();
   document.getElementById('cardOverlay').classList.remove('hidden');
 }
 
-// Render the three card areas (Just Drawn / In Hand / Playing). Click-to-play:
-// a click in the first two sections moves a card into the play tray; a click in
-// the tray takes it back. Both are capped at PLAY_PER_TURN.
+// Render the hand as two sections (Just Drawn / In Hand). Clicking a card PLAYS
+// it immediately (resolving its table picks) — nothing fires automatically. Any
+// card in the hand is playable, up to PLAY_PER_TURN plays per turn.
 function buildCardPhaseUI() {
   const drawnGrid = document.getElementById('cardDrawnGrid');
   const heldGrid = document.getElementById('cardHeldGrid');
-  const playGrid = document.getElementById('cardPlayGrid');
-  drawnGrid.innerHTML = ''; heldGrid.innerHTML = ''; playGrid.innerHTML = '';
+  drawnGrid.innerHTML = ''; heldGrid.innerHTML = '';
+  const canPlay = cardPhasePlaysLeft > 0;
 
-  const playing = phaseCards.filter((c) => c.playing);
-  const playsLeft = PLAY_PER_TURN - playing.length;
-
-  const makeCard = (c, where) => {
+  const makeCard = (c) => {
     const card = cardById(c.id);
     const div = document.createElement('div');
-    div.className = 'card-pick-item' + (where === 'play' ? ' playing' : '');
+    div.className = 'card-pick-item' + (canPlay ? '' : ' disabled');
     div.innerHTML = `<div class="cpicon">${card.icon || ''}</div><div class="cpname">${card.name}</div>`
       + `<div class="cpdesc">${card.desc}</div><div class="cptag">${card.type}</div>`;
-    if (where === 'play') {
-      div.title = 'Click to take back';
-      div.addEventListener('click', () => { c.playing = false; buildCardPhaseUI(); });
-    } else {
-      if (playsLeft <= 0) div.classList.add('disabled');
-      div.addEventListener('click', () => {
-        if (PLAY_PER_TURN - phaseCards.filter((x) => x.playing).length <= 0) return;
-        c.playing = true; buildCardPhaseUI();
-      });
-    }
+    div.title = canPlay ? 'Click to play' : 'No plays left this turn';
+    div.addEventListener('click', () => { if (cardPhasePlaysLeft > 0) playCard(c); });
     return div;
   };
-
-  const fill = (grid, cards, where, empty) => {
+  const fill = (grid, cards, empty) => {
     if (!cards.length) { grid.innerHTML = `<span class="card-empty">${empty}</span>`; return; }
-    cards.forEach((c) => grid.appendChild(makeCard(c, where)));
+    cards.forEach((c) => grid.appendChild(makeCard(c)));
   };
-  fill(drawnGrid, phaseCards.filter((c) => c.isNew && !c.playing), 'drawn', '— none —');
-  fill(heldGrid, phaseCards.filter((c) => !c.isNew && !c.playing), 'held', '— none —');
-  fill(playGrid, playing, 'play', 'click a card above to play it');
+  fill(drawnGrid, phaseCards.filter((c) => c.isNew), '— none —');
+  fill(heldGrid, phaseCards.filter((c) => !c.isNew), '— none —');
 
-  document.getElementById('cardPlaysCount').textContent = playing.length;
-  document.getElementById('cardDoneBtn').textContent =
-    playing.length ? `Confirm (${playing.length})` : 'Play none';
+  document.getElementById('cardPlaysLeft').textContent =
+    canPlay ? `${cardPhasePlaysLeft} play${cardPhasePlaysLeft > 1 ? 's' : ''} left` : 'No plays left';
+  document.getElementById('cardDoneBtn').textContent = canPlay ? 'Done' : 'Continue';
 }
 
-function onCardPhaseDone() {
-  document.getElementById('cardOverlay').classList.add('hidden');
-  cardPhaseActive = false;
+// Play one chosen card now: pull it from the hand, hide the overlay, and resolve
+// it (table picks, then effect). When it settles we reopen the overlay for the
+// next play, or end the phase.
+function playCard(c) {
+  if (cardPhasePlaysLeft <= 0) return;
   const player = state.players[state.cardPhasePlayer];
-  const playSlots = phaseCards.filter((c) => c.playing).map((c) => c.slot);
-  const ids = playSlots.map((slot) => player.hand[slot]).filter(Boolean);
-  // remove played slots high->low so the remaining indices stay valid
-  playSlots.slice().sort((a, b) => b - a).forEach((slot) => player.hand.splice(slot, 1));
-  phaseCards = [];
-  cardQueue = ids.map((id) => ({ id, opts: {}, steps: [...(cardById(id).interactions || [])] }));
+  const ci = phaseCards.indexOf(c);
+  if (ci >= 0) phaseCards.splice(ci, 1);
+  const hi = player.hand.indexOf(c.id);
+  if (hi >= 0) player.hand.splice(hi, 1);
+  cardPhasePlaysLeft--;
+  cardPhaseActive = false;
+  document.getElementById('cardOverlay').classList.add('hidden');
+  cardQueue = [{ id: c.id, opts: {}, steps: [...(cardById(c.id).interactions || [])] }];
   updateHand();
   processCardQueue();
 }
 
-function onCardPhaseSkip() {
-  document.getElementById('cardOverlay').classList.add('hidden');
-  cardPhaseActive = false; phaseCards = [];
-  finishCardPhase();
+// Called when a played card has fully resolved: reopen the overlay for another
+// play, or finish the phase if out of plays / cards.
+function afterCardResolved() {
+  updateHand(); updateEffects(); render();
+  const player = state.players[state.cardPhasePlayer];
+  if (cardPhasePlaysLeft > 0 && player && player.hand.length) {
+    cardPhaseActive = true;
+    setStatus(`${player.name}: play another card or click Done`);
+    buildCardPhaseUI();
+    document.getElementById('cardOverlay').classList.remove('hidden');
+  } else {
+    endCardPhase();
+  }
 }
 
+function onCardPhaseDone() { endCardPhase(); }
+function onCardPhaseSkip() { endCardPhase(); }
+
 function processCardQueue() {
-  if (!cardQueue.length) { finishCardPhase(); return; }
+  if (!cardQueue.length) { afterCardResolved(); return; }
   const item = cardQueue[0];
   if (item.steps.length) {
     const s = item.steps[0];
@@ -587,8 +591,10 @@ function resolvePick(x, y) {
   processCardQueue();
 }
 
-function finishCardPhase() {
-  pendingPick = null; pickHover = null; cardQueue = [];
+function endCardPhase() {
+  document.getElementById('cardOverlay').classList.add('hidden');
+  cardPhaseActive = false; cardPhasePlaysLeft = 0;
+  pendingPick = null; pickHover = null; cardQueue = []; phaseCards = [];
   const done = cardPhaseDone; cardPhaseDone = null;
   state.cardPhasePlayer = null;
   if (done) done();
@@ -732,11 +738,25 @@ function updatePlayers() {
   const el = document.getElementById('playerInfo');
   el.innerHTML = '';
   const swatch = ['#ffd700', '#4a9eff', '#ff6b6b', '#4aff4a'];
+  // 8-ball / doubles assign solids vs stripes — show that as the ball icon.
+  const groupsShown = state.variant === 'eight' || state.variant === 'doubles';
   state.players.forEach((p, i) => {
     const row = document.createElement('div');
     row.className = 'player-row' + (i === state.currentPlayer ? ' active-turn' : '');
     const label = state.started ? commitmentLabel(state, i) : '';
-    row.innerHTML = `<div class="player-swatch" style="background:${swatch[i] || '#888'}"></div>`
+    const col = swatch[i] || '#888';
+    let style;
+    if (groupsShown && p.group === 'stripes') {
+      // white ball with a coloured equatorial band
+      style = `background:linear-gradient(#fbfbfb 0 27%, ${col} 27% 73%, #fbfbfb 73% 100%);`;
+    } else if (groupsShown && p.group === 'solids') {
+      // solid coloured ball with a highlight
+      style = `background:radial-gradient(circle at 34% 30%, #ffffffcc, ${col} 58%);`;
+    } else {
+      style = `background:${col};`;
+    }
+    const ttl = (groupsShown && p.group) ? ` title="${p.group}"` : '';
+    row.innerHTML = `<div class="player-swatch"${ttl} style="${style}"></div>`
       + `<div class="player-name">${p.name}</div>`
       + `<div class="player-score">${label}</div>`;
     el.appendChild(row);
@@ -923,11 +943,12 @@ function boot() {
     },
     moveHole(i, u, v) { state.movedPockets[i] = { u, v }; render(); },
     setSize(num, size) { const b = state.balls.find((x) => x.num === num); if (b) { b.size = size; render(); } },
+    refreshPanels: () => { updatePlayers(); updateHand(); updateEffects(); },
     // card-phase debug
     pick: () => pendingPick,
     queue: () => cardQueue.map((c) => ({ id: c.id, opts: c.opts, steps: c.steps.length })),
     cardPhaseActive: () => cardPhaseActive,
-    selected: () => phaseCards.filter((c) => c.playing).map((c) => c.id),
+    selected: () => phaseCards.map((c) => c.id),
     clickRel: (u, v) => { const p = toPx({ u, v }, state.dims); if (pendingPick) resolvePick(p.x, p.y); else if (placingCue) placeCueAt(p.x, p.y); },
   };
 }

@@ -153,8 +153,9 @@
   <div class="modal-box">
     <h2>Card Phase — <span id="cardPhasePlayerName">Player</span></h2>
     <p style="font-size:12px;color:#aaa;margin-bottom:12px;">
-      Click cards to play them (up to <span id="cardPlayLimit">2</span>) and sabotage the next player.
+      Click a card to play it (up to <span id="cardPlayLimit">2</span> per turn) and sabotage the next player.
       <span id="cardDrawInfo" style="color:#ffd700;"></span>
+      <b id="cardPlaysLeft" style="color:#9ff0c0;float:right;"></b>
     </p>
 
     <div class="card-section">
@@ -166,16 +167,8 @@
       <div id="cardHeldGrid" class="card-grid"></div>
     </div>
 
-    <div id="cardPlayTray" class="card-tray">
-      <h4 class="card-section-title">
-        🎯 Playing this turn (<span id="cardPlaysCount">0</span>/<span id="cardPlayLimit2">2</span>)
-      </h4>
-      <div id="cardPlayGrid" class="card-grid"></div>
-    </div>
-
     <div style="display:flex;gap:8px;flex-wrap:wrap;">
-      <button class="btn btn-primary" id="cardDoneBtn" onclick="onCardPhaseDone()">Play none</button>
-      <button class="btn btn-secondary" onclick="onCardPhaseSkip()">Skip</button>
+      <button class="btn btn-primary" id="cardDoneBtn" onclick="onCardPhaseDone()">Done</button>
     </div>
   </div>
 </div>
