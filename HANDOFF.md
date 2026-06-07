@@ -50,14 +50,24 @@ With the backlog cleared, the open work is the **NOT-yet-verified gaps** below �
 chiefly the **live 2-client online test** (never run with two real browsers) and a
 **per-card playtest** of all 30 cards.
 
-**Warp Rail is now implemented** (commit `ff66d6d`, 43 tests): `geometry.warpRail`
-bulges an inward cushion ridge near the anchor pocket; physics adds its faces to
-the cushion set during the shot and render draws the same triangle. `state.warp`
-is now `{ anchor, turns }` (still serialized → online-safe). **For the many more
-cards to come**, this is the pattern: put new geometry in `geometry.js` as a pure
-fn so physics (`physics.js`) and render (`render/*`) derive from one shape, add the
-effect applier in `cards/effects.js` + catalogue entry in `cards/registry.js`, and
-cover it with a `node --test` unit test.
+**Recent UX revisions (2026-06-07, commits `8117dc3`, `e142d83`, `5b2332a`):**
+- **Card phase now plays from the right-panel Hand — no modal.** Drawn cards land
+  in `#handArea` (badged NEW); click a card to play it, one at a time, up to
+  `PLAY_PER_TURN`. While a pick resolves, a "▶ Playing <card> — <prompt>" banner
+  (`#nowPlaying`) shows over the table and the hand locks. Unplayed cards persist.
+  Driver: `beginCardPhase`/`playHandCard`/`updateCardPhaseUI`/`afterCardResolved`
+  in `app.js`; `phaseNewIds` is the NEW set. The old `#cardOverlay` modal is gone
+  (its `.card-grid`/`.card-pick-item` CSS is now dead — safe to delete).
+- **Warp Rail is a pocket relocator** (like Move Hole), NOT a cushion warp. It
+  picks a pocket then drags it anywhere not on a ball (writes `movedPockets`). The
+  earlier warped-cushion code (`geometry.warpRail`, physics warp faces, `state.warp`)
+  was fully removed.
+- **Player ball icon shows solids/stripes** in 8-ball/doubles (`updatePlayers`).
+
+**For the many more cards to come**, the pattern is: applier in `cards/effects.js`
+(mutating `activeEffects`/`balls`/`movedPockets`/`pocketState`) + catalogue entry
+with `interactions` in `cards/registry.js`; any new shared geometry goes in
+`geometry.js` as a pure fn so physics and render agree; cover with a `node --test`.
 
 ## How to run
 - **Double-click `launch.bat`** → starts the Python server and opens the browser.
