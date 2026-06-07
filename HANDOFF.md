@@ -9,6 +9,62 @@ playable card-battler pool game with: a pool-accurate table, real physics,
 standard rules for all four variants, the 30-card sabotage system, working online
 multiplayer plumbing, and synthesized audio. **39 unit tests pass** (`npm test`).
 
+## ⭐ NEXT UP — Card & table rework backlog (do this BEFORE any online/downstream polish)
+User feedback 2026-06-06. These are intentionally NOT yet implemented — several
+touch the card UX, physics, and render together and will affect online sync, so do
+them as one coordinated pass and re-test online afterward.
+
+**Card UX / drafting**
+1. **Draw into hand, click to play.** Drawn cards should land in the player's hand;
+   the player then clicks a card in their hand to play it — replace the current
+   "select up to 2 in an overlay + Done" flow. Files: `app.js`
+   (`beginCardPhase`/`buildCardGrid`/`drawCards`/`onCardPhaseDone`), `PLAY ME.html`
+   (`#cardOverlay`/`#handArea`), `styles/main.css`.
+2. **No duplicate cards in a single offering.** `drawCards` can currently repeat a
+   card within one draw — make each offering's cards unique. File: `app.js drawCards`.
+3. **Separate the offered cards from the cards already in hand** (distinct UI
+   sections / divider). Files: `app.js` UI, `PLAY ME.html`, CSS.
+
+**New mechanic**
+4. **Spin / English.** Add the ability to put spin on the cue ball (top/back/side).
+   There's already a `drawSpinDial` in the OLD `hd-renderer.js` (git history) for a
+   reference UI. Needs: a spin-select control + physics that applies English to the
+   cue's post-contact path. Files: new render control, `physics.js`, `app.js`.
+
+**Placement preview**
+5. **Live preview for placement / pocket-moving cards.** Before committing, show a
+   ghost of the effect (zone/bumper/portal/moved hole) following the cursor; click
+   to confirm. Files: `app.js` (`resolvePick`/`pendingPick`), `render/effects.js`.
+
+**Table render**
+6. **Remove the stray yellow diamonds in the side (center) pockets** — the rail
+   diamond sights at the side-pocket midpoints now sit on top of the recessed
+   pockets. File: `render/table.js drawDiamonds` (drop/relocate the `pa.cx` entries).
+7. **Make the cue stick much longer** (real pool-cue proportion). File:
+   `render/aim.js` (the `len2 = base * 8.5` term — increase substantially).
+
+**Card behavior bugs**
+8. **Moved pocket must still pocket.** After Move Hole, balls rest ON the moved
+   hole instead of dropping. Also: Move Hole placement must be rejected if it lands
+   on a ball. Investigate `physics.js pocketCheck` capture at moved positions
+   (works in `pocketsFor` but balls aren't dropping — maybe capture radius/funnel at
+   a mid-table hole, or a render/physics position mismatch). Files: `physics.js`,
+   `cards/effects.js move_hole`, `app.js resolvePick` (block placing on a ball).
+9. **Fog of War does nothing.** Should mask the table to a narrow sight (cone/circle
+   around the aim line to the first object ball); everything else black/hidden.
+   Files: new render mask + `app.js` render order; flag is `activeEffects.fogOfWar`.
+10. **Drunk should NOT affect the ball after the shot.** Remove the per-frame +
+    shot-time random jitter on the cue (currently in `physics.js applyShot` and
+    `step`); keep ONLY the aim oscillation, and tighten it to ±5° (currently the
+    render sway is ~±0.16 rad ≈ ±9° in `app.js render`).
+11. **Shrink / Block pocket should change the pocket's shape/barrier**, not just
+    overlay a circle — shrink = visibly smaller opening; block = a barrier across the
+    mouth. File: `render/effects.js` (pocket-state drawing), maybe `geometry.js`.
+
+> Note: items 5, 8–11 change physics/state, so re-verify the online snapshot path
+> after — effects/zones already serialize, but new fields (e.g., spin) must be
+> added to `serializeSnapshot`/`applySnapshot`.
+
 ## How to run
 - **Double-click `launch.bat`** → starts the Python server and opens the browser.
   (You MUST use the server — the game uses ES modules, which browsers block over
