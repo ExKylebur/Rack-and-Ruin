@@ -61,15 +61,9 @@ const APPLIERS = {
   pocket_shrink: (s, o) => { pstate(s, o.pocket).shrunk = true; pstate(s, o.pocket).shrunkTurns = 3; },
   move_hole: (s, o) => { (s.movedPockets ||= {})[o.pocket] = { ...o.to }; },
   warp_rail: (s, o) => {
-    // Simple warp: nudge the play-area corners in/out around the chosen pocket.
-    const k = 0.04;
-    s.warp = {
-      anchor: o.pocket,
-      corners: [
-        { u: k, v: k }, { u: 1 - k, v: k }, { u: 1 - k, v: 1 - k }, { u: k, v: 1 - k },
-      ],
-      turns: 3,
-    };
+    // Bulge an inward cushion ridge near the chosen pocket for a few turns.
+    // geometry.warpRail derives the shape; physics & render both read state.warp.
+    s.warp = { anchor: o.pocket, turns: 3 };
   },
   earthquake: (s) => {
     for (const b of s.balls) {

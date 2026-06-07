@@ -2,7 +2,7 @@
 // + state.warp). No hardcoded pocket positions; the cache invalidates whenever
 // pockets move or the table warps, so Move Hole / Warp Rail repaint correctly.
 
-import { playArea, pocketLayout, unitsFor, cushions } from '../geometry.js';
+import { playArea, pocketLayout, unitsFor, cushions, warpRail } from '../geometry.js';
 
 let _cache = { canvas: null, key: '' };
 
@@ -92,6 +92,8 @@ function buildTableLayer(state) {
 
   // --- 3. Cushions: green bumpers on the bed edge, angled into the pockets ---
   drawCushions(ctx, state.dims);
+  // Warp Rail: an inward cushion ridge near the anchor pocket (same geom physics uses).
+  drawWarp(ctx, state.dims, state.warp);
 
   // --- 4. Pocket holes (set into the rail at the corners / side midpoints) --
   pockets.forEach((p) => drawPocketHole(ctx, p));
@@ -195,6 +197,27 @@ function drawCushions(ctx, dims) {
     edge(2.2, 'rgba(0,0,0,0.20)', 3);          // shadow onto the bed
     edge(0, 'rgba(205,255,215,0.5)', 1.4);     // bright crest on the bounce faces
   }
+}
+
+function drawWarp(ctx, dims, warp) {
+  const wr = warpRail(dims, warp);
+  if (!wr) return;
+  const [baseL, apex, baseR] = wr.poly;
+  ctx.save();
+  ctx.beginPath();
+  ctx.moveTo(baseL.x, baseL.y);
+  ctx.lineTo(apex.x, apex.y);
+  ctx.lineTo(baseR.x, baseR.y);
+  ctx.closePath();
+  ctx.fillStyle = '#1c8a4f';                  // same cushion green
+  ctx.fill();
+  // bright crest on the two bed-facing edges + a soft shadow onto the felt
+  ctx.lineJoin = 'round';
+  ctx.strokeStyle = 'rgba(0,0,0,0.22)'; ctx.lineWidth = 4; ctx.stroke();
+  ctx.beginPath();
+  ctx.moveTo(baseL.x, baseL.y); ctx.lineTo(apex.x, apex.y); ctx.lineTo(baseR.x, baseR.y);
+  ctx.strokeStyle = 'rgba(120,210,255,0.55)'; ctx.lineWidth = 1.6; ctx.stroke(); // watery tint
+  ctx.restore();
 }
 
 function drawDiamonds(ctx, w, h, pa, u) {

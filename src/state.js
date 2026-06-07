@@ -37,7 +37,7 @@ export function createGameState() {
     balls: [],
     movedPockets: {},      // pocketIndex -> {u,v}; Move Hole writes here
     pocketState: {},        // pocketIndex -> {blocked,shrunk,open} flags
-    warp: null,             // null | { corners:[{u,v}x4], mids:[{u,v}x2], turns }
+    warp: null,             // null | { anchor: pocketIndex, turns } — Warp Rail ridge
     players: [],            // { name, group, hand:[cardId], seat }
     currentPlayer: 0,
     cardPhasePlayer: null,  // explicit; replaces fragile currentPlayer±1 math

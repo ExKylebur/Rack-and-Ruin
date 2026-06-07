@@ -270,7 +270,7 @@ function shoot(power, angle) {
   ballsMoving = true;
   sfx('shot', power);
   lastPhysTime = performance.now();
-  const env = { effects: state.activeEffects, pocketState: state.pocketState, events: [] };
+  const env = { effects: state.activeEffects, pocketState: state.pocketState, warp: state.warp, events: [] };
   const tick = () => {
     const now = performance.now();
     const dt = Math.min((now - lastPhysTime) / 16.67, 3);
@@ -916,7 +916,8 @@ function boot() {
       sim = makeSim(state);
       applyShot(sim, power, angle, state.activeEffects, sp || spin);
       state.turn = freshTurn(); state.turn.isBreak = !state.broken;
-      let f = 0; while (step(sim, pocketsFor(state), 1, state.turn, { effects: state.activeEffects, pocketState: state.pocketState }) && f < 6000) f++;
+      const env = { effects: state.activeEffects, pocketState: state.pocketState, warp: state.warp };
+      let f = 0; while (step(sim, pocketsFor(state), 1, state.turn, env) && f < 6000) f++;
       commit(state, sim); ballsMoving = false; resolveShot(); render();
       return { status: document.getElementById('statusMsg').textContent, groups: state.players.map((p) => p.group), pocketed: state.balls.filter((b) => b.pocketed).map((b) => b.num) };
     },
