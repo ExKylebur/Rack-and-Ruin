@@ -50,7 +50,8 @@ export function applyShot(sim, power, angle, effects = {}) {
   let mult = effects.turbo ? 1.6 : 1;
   cue.vx = Math.cos(angle) * p * MAX_SHOT_SPEED * mult;
   cue.vy = Math.sin(angle) * p * MAX_SHOT_SPEED * mult;
-  if (effects.drunk) { cue.vx += (Math.random() - 0.5) * p * 4; cue.vy += (Math.random() - 0.5) * p * 4; }
+  // Drunk only sways the AIM (see app.js render); it must NOT perturb the struck
+  // ball, so there is no velocity jitter here once the shot is committed.
 }
 
 function railDampFor(rail, effects) {
@@ -99,6 +100,10 @@ function pocketCheck(b, pockets, turn, pocketState, ev) {
     const dx = b.x - p.x, dy = b.y - p.y;
     let cap = p.r * POCKET_PULL_RADIUS;
     if (ps && ps.shrunk) cap *= 0.65;
+    // A moved (mid-table) hole has no cushion jaws to funnel the ball, so a ball
+    // can coast to rest sitting ON the rim instead of dropping. Widen the capture
+    // for moved holes so anything overlapping the opening falls in.
+    if (p.moved) cap = Math.max(cap, p.r + b.r * 0.75);
     if (dx * dx + dy * dy < cap * cap) {
       b.pocketed = true; b.vx = 0; b.vy = 0;
       turn.pocketed.push(b.num);
@@ -191,7 +196,6 @@ export function step(sim, pockets, dt, turn, env = {}) {
   for (const b of sim) {
     if (b.pocketed) continue;
     applyForces(b, dt, effects, pockets);
-    if (b.num === 0 && effects.drunk) { b.vx += (Math.random() - 0.5) * 0.3; b.vy += (Math.random() - 0.5) * 0.3; }
     const fr = Math.pow(frictionFor(b, effects), dt);
     b.vx *= fr; b.vy *= fr;
     const spd = Math.hypot(b.vx, b.vy);

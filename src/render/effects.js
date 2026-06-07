@@ -46,21 +46,120 @@ export function drawEffects(ctx, state) {
     ctx.moveTo(cx + dir * len, cy); ctx.lineTo(cx + dir * (len - 8), cy + 6); ctx.stroke();
   }
 
-  // pocket states
+  // pocket states — reshape the actual opening, not just tint it
   const ps = state.pocketState || {};
   const pk = pocketLayout(state.dims, state.movedPockets);
+  const pa = playArea(state.dims);
   pk.forEach((p) => {
     const st = ps[p.index];
     if (!st) return;
-    if (st.blocked) {
-      ctx.beginPath(); ctx.arc(p.x, p.y, p.r * 0.9, 0, Math.PI * 2);
-      ctx.fillStyle = 'rgba(255,40,40,0.5)'; ctx.fill();
-    }
+    // inward unit vector: from the pocket toward the table centre
+    let ix = pa.cx - p.x, iy = pa.cy - p.y;
+    const il = Math.hypot(ix, iy) || 1; ix /= il; iy /= il;
+
     if (st.shrunk) {
-      ctx.beginPath(); ctx.arc(p.x, p.y, p.r * 0.65, 0, Math.PI * 2);
-      ctx.strokeStyle = 'rgba(255,90,90,0.6)'; ctx.lineWidth = 2; ctx.stroke();
+      // Fill the outer bore with the dark rim colour so the visible opening is
+      // plainly smaller (matches the tightened capture radius in physics).
+      const inner = p.r * 0.6;
+      const g = ctx.createRadialGradient(p.x, p.y, inner, p.x, p.y, p.r + 4);
+      g.addColorStop(0, 'rgba(28,13,5,0)');
+      g.addColorStop(0.3, 'rgba(30,14,6,0.97)');
+      g.addColorStop(1, 'rgba(44,22,10,0.98)');
+      ctx.beginPath(); ctx.arc(p.x, p.y, p.r + 4, 0, Math.PI * 2);
+      ctx.fillStyle = g; ctx.fill();
+      ctx.beginPath(); ctx.arc(p.x, p.y, inner, 0, Math.PI * 2);
+      ctx.fillStyle = '#040404'; ctx.fill();
+      ctx.strokeStyle = 'rgba(255,140,140,0.55)'; ctx.lineWidth = 1.5; ctx.stroke();
+    }
+
+    if (st.blocked) {
+      // A physical barrier laid across the mouth (perpendicular to the inward
+      // direction), nudged slightly onto the bed so it reads as a wall.
+      const tx = -iy, ty = ix;            // tangent across the opening
+      const half = p.r * 0.95;
+      const bx = p.x + ix * p.r * 0.25, by = p.y + iy * p.r * 0.25;
+      const a = { x: bx - tx * half, y: by - ty * half };
+      const b = { x: bx + tx * half, y: by + ty * half };
+      ctx.save();
+      ctx.lineCap = 'round';
+      ctx.strokeStyle = 'rgba(18,9,3,0.95)'; ctx.lineWidth = p.r * 0.62;
+      ctx.beginPath(); ctx.moveTo(a.x, a.y); ctx.lineTo(b.x, b.y); ctx.stroke();
+      ctx.strokeStyle = 'rgba(214,42,42,0.96)'; ctx.lineWidth = p.r * 0.42;
+      ctx.beginPath(); ctx.moveTo(a.x, a.y); ctx.lineTo(b.x, b.y); ctx.stroke();
+      // hazard ticks across the bar
+      ctx.strokeStyle = 'rgba(255,222,120,0.9)'; ctx.lineWidth = 2;
+      for (let s = -0.6; s <= 0.61; s += 0.4) {
+        const cx = bx + tx * half * s, cy = by + ty * half * s;
+        ctx.beginPath();
+        ctx.moveTo(cx - ix * p.r * 0.22, cy - iy * p.r * 0.22);
+        ctx.lineTo(cx + ix * p.r * 0.22, cy + iy * p.r * 0.22);
+        ctx.stroke();
+      }
+      ctx.restore();
     }
   });
+}
+
+// Fog of War: black out the whole table except a narrow sight beam running from
+// the cue ball along the current aim line to the first object ball it would reach,
+// plus a soft pool of light around the cue ball and the target. Built on an
+// offscreen layer so overlapping reveal shapes simply punch one clean hole.
+export function drawFog(ctx, state, aimAngle) {
+  const cue = state.balls.find((b) => b.num === 0 && !b.pocketed);
+  if (!cue) return;
+  const { w, h } = state.dims;
+  const r = unitsFor(state.dims).ballR;
+  const pa = playArea(state.dims);
+  const c = toPx({ u: cue.u, v: cue.v }, state.dims);
+
+  // March along the aim line to the first object ball (or the rail).
+  const dx = Math.cos(aimAngle), dy = Math.sin(aimAngle);
+  const stepLen = Math.max(3, r * 0.5);
+  const maxLen = Math.hypot(w, h);
+  let x = c.x, y = c.y, len = 0, end = { x: c.x, y: c.y };
+  while (len < maxLen) {
+    x += dx * stepLen; y += dy * stepLen; len += stepLen;
+    end = { x, y };
+    if (x < pa.left || x > pa.right || y < pa.top || y > pa.bottom) break;
+    let hit = false;
+    for (const b of state.balls) {
+      if (b.pocketed || b.num === 0) continue;
+      const bp = toPx({ u: b.u, v: b.v }, state.dims);
+      const br = r + r * (b.size || 1);
+      if ((bp.x - x) ** 2 + (bp.y - y) ** 2 < br * br) { hit = true; break; }
+    }
+    if (hit) break;
+  }
+
+  const fog = document.createElement('canvas');
+  fog.width = Math.max(1, Math.round(w));
+  fog.height = Math.max(1, Math.round(h));
+  const fc = fog.getContext('2d');
+  fc.fillStyle = 'rgba(2,4,8,0.95)';
+  fc.fillRect(0, 0, w, h);
+
+  fc.globalCompositeOperation = 'destination-out';
+  const glow = (px, py, rad) => {
+    const g = fc.createRadialGradient(px, py, rad * 0.35, px, py, rad);
+    g.addColorStop(0, 'rgba(0,0,0,1)');
+    g.addColorStop(1, 'rgba(0,0,0,0)');
+    fc.fillStyle = g;
+    fc.beginPath(); fc.arc(px, py, rad, 0, Math.PI * 2); fc.fill();
+  };
+  glow(c.x, c.y, r * 3.4);     // light around the cue ball
+  glow(end.x, end.y, r * 3.2); // light on the target
+  // tapered beam down the aim line
+  const nx = -dy, ny = dx, w0 = r * 1.6, w1 = r * 2.6;
+  fc.fillStyle = 'rgba(0,0,0,1)';
+  fc.beginPath();
+  fc.moveTo(c.x + nx * w0, c.y + ny * w0);
+  fc.lineTo(end.x + nx * w1, end.y + ny * w1);
+  fc.lineTo(end.x - nx * w1, end.y - ny * w1);
+  fc.lineTo(c.x - nx * w0, c.y - ny * w0);
+  fc.closePath(); fc.fill();
+  fc.globalCompositeOperation = 'source-over';
+
+  ctx.drawImage(fog, 0, 0);
 }
 
 function zone(ctx, p, rad, fill, stroke, emoji) {

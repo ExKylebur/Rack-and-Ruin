@@ -71,7 +71,7 @@ export function drawAim(ctx, state, angle, power) {
   const pull = cue.r * 0.5 + power * cue.r * 3;
   const tipX = cue.x - dx * (cue.r + 2 + pull);
   const tipY = cue.y - dy * (cue.r + 2 + pull);
-  const len2 = base * 8.5;
+  const len2 = base * 22; // real cue proportion (~25 ball-diameters long)
   const butX = tipX - dx * len2;
   const butY = tipY - dy * len2;
   const g = ctx.createLinearGradient(tipX, tipY, butX, butY);

@@ -199,9 +199,11 @@ function drawCushions(ctx, dims) {
 
 function drawDiamonds(ctx, w, h, pa, u) {
   const off = u.cushion * 0.5;
+  // No diamond at pa.cx on the long rails — that midpoint is the side pocket,
+  // and a sight there would sit on top of the recessed hole.
   const spots = [
-    [pa.left + pa.w * 0.25, pa.top - off, 0], [pa.cx, pa.top - off, 0], [pa.left + pa.w * 0.75, pa.top - off, 0],
-    [pa.left + pa.w * 0.25, pa.bottom + off, 0], [pa.cx, pa.bottom + off, 0], [pa.left + pa.w * 0.75, pa.bottom + off, 0],
+    [pa.left + pa.w * 0.25, pa.top - off, 0], [pa.left + pa.w * 0.75, pa.top - off, 0],
+    [pa.left + pa.w * 0.25, pa.bottom + off, 0], [pa.left + pa.w * 0.75, pa.bottom + off, 0],
     [pa.left - off, pa.top + pa.h * 0.5, Math.PI / 2], [pa.right + off, pa.top + pa.h * 0.5, Math.PI / 2],
   ];
   const s = Math.max(3, u.ballR * 0.4);

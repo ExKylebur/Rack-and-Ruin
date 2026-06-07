@@ -12,7 +12,7 @@ import { fitCanvas, playArea, pocketLayout, toPx, toRel, unitsFor } from './geom
 import { drawTable } from './render/table.js';
 import { drawBall } from './render/ball.js';
 import { drawAim } from './render/aim.js';
-import { drawEffects, drawPickHighlights } from './render/effects.js';
+import { drawEffects, drawPickHighlights, drawFog } from './render/effects.js';
 import {
   makeSim, pocketsFor, freshTurn, applyShot, step, syncToState, commit,
 } from './physics.js';
@@ -77,10 +77,12 @@ function render() {
   const e = state.activeEffects || {};
   const canAim = state.started && !state.gameOver && !ballsMoving && !placingCue
     && !cardPhaseActive && !pendingPick && !!cuePx();
+  const sway = (canAim && e.drunk) ? Math.sin(performance.now() / 280) * 0.087 : 0; // Drunk: wobbly aim, ±5°
   if (canAim && !e.shortsighted) {
-    const sway = e.drunk ? Math.sin(performance.now() / 280) * 0.16 : 0; // Drunk: wobbly aim
     drawAim(ctx, state, aimAngle + sway, charging ? shotPower : 0);
   }
+  // Fog of War masks everything but a sight beam down the (swayed) aim line.
+  if (canAim && e.fogOfWar) drawFog(ctx, state, aimAngle + sway);
   if (placingCue) drawCuePlacement();
   if (pendingPick) drawPickHighlights(ctx, state, pendingPick);
 }
@@ -497,7 +499,17 @@ function resolvePick(x, y) {
     if (x > pa.left && x < pa.right && y > pa.top && y < pa.bottom) {
       const rel = toRel({ x, y }, state.dims);
       if (item.id === 'portal') (item.opts.positions ||= []).push(rel);
-      else if (item.id === 'move_hole' && item.opts.pocket !== undefined) item.opts.to = rel;
+      else if (item.id === 'move_hole' && item.opts.pocket !== undefined) {
+        // Can't drop a pocket on top of a ball — it would swallow it for free.
+        const pr = unitsFor(state.dims).pocketR;
+        const onBall = state.balls.some((b) => {
+          if (b.pocketed) return false;
+          const bp = toPx({ u: b.u, v: b.v }, state.dims);
+          return Math.hypot(bp.x - x, bp.y - y) < pr + r * (b.size || 1);
+        });
+        if (onBall) { showToast("Can't move a pocket onto a ball"); return; }
+        item.opts.to = rel;
+      }
       else item.opts.pos = rel;
       ok = true;
     }
