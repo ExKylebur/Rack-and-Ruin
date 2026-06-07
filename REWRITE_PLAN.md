@@ -112,9 +112,9 @@ renormalize on resize (current approach, fragile).
 | 1 | **Looks like pool**: render-from-state, correct pocket geometry, scaling that tracks canvas, Move Hole visibly moves | ☑ done (`cbb4eef`) — verified in browser |
 | 1b | **Playable solo**: physics.js + input + shot loop wired into app.js (no cards yet) | ☑ done (`79642bc`) — verified in browser |
 | 2 | **Cards work**: card-phase player fix, all appliers pure + visually correct (big/small ball, open pocket, warp render) | ☑ core done (`499c9f3`) — verified in browser; warp render + per-effect playtest still TODO |
-| 3 | **Rules clean**: variant evaluators extracted + unit-tested (8/9/cutthroat/doubles) | ☐ |
-| 4 | **Online works**: threaded server, client push-on-change + long-poll wired, resolution-independent sync, reconnect | ☐ |
-| 5 | Polish: phone controls, audio coverage, effect-ownership UI, diagnostics panel | ☐ |
+| 3 | **Rules clean**: variant evaluators extracted + unit-tested (8/9/cutthroat/doubles) | ☑ done (`da63e26`) |
+| 4 | **Online works**: threaded server, client push-on-change + long-poll wired, resolution-independent sync | ☑ done (`e82c038`) — server validated; live 2-client test pending |
+| 5 | Polish: audio wired (`1e66f91`). Remaining: phone-aim tweak, diagnostics panel, warp render | ◐ partial |
 
 ---
 
