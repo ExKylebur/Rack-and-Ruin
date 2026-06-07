@@ -59,7 +59,7 @@ function railDampFor(rail, effects) {
   return WALL_DAMP;
 }
 
-function collideFace(b, s, effects) {
+function collideFace(b, s, effects, ev) {
   const dx = s.x2 - s.x1, dy = s.y2 - s.y1;
   const len2 = dx * dx + dy * dy || 1;
   let t = ((b.x - s.x1) * dx + (b.y - s.y1) * dy) / len2;
@@ -76,18 +76,23 @@ function collideFace(b, s, effects) {
     const damp = railDampFor(s.rail, effects);
     b.vx = (b.vx - vn * nx) * TANG_DAMP - damp * vn * nx;
     b.vy = (b.vy - vn * ny) * TANG_DAMP - damp * vn * ny;
+    if (ev && -vn > 1) {
+      const kind = (effects.bounceHouseRail && effects.bounceHouseRail.includes(s.rail)) ? 'bounce_house'
+        : (effects.deadRail && effects.deadRail.includes(s.rail)) ? 'dead_rail' : 'normal';
+      ev.push({ type: 'rail', impact: Math.min(-vn / 8, 1), rail: kind });
+    }
   }
 }
 
-function railBounce(b, effects) {
-  for (const s of FACES) collideFace(b, s, effects);
+function railBounce(b, effects, ev) {
+  for (const s of FACES) collideFace(b, s, effects, ev);
   if (b.x - b.r < PA.left)   { b.x = PA.left + b.r;   if (b.vx < 0) b.vx = -b.vx * WALL_DAMP; }
   if (b.x + b.r > PA.right)  { b.x = PA.right - b.r;  if (b.vx > 0) b.vx = -b.vx * WALL_DAMP; }
   if (b.y - b.r < PA.top)    { b.y = PA.top + b.r;    if (b.vy < 0) b.vy = -b.vy * WALL_DAMP; }
   if (b.y + b.r > PA.bottom) { b.y = PA.bottom - b.r; if (b.vy > 0) b.vy = -b.vy * WALL_DAMP; }
 }
 
-function pocketCheck(b, pockets, turn, pocketState) {
+function pocketCheck(b, pockets, turn, pocketState, ev) {
   for (const p of pockets) {
     const ps = pocketState && pocketState[p.index];
     if (ps && ps.blocked) continue;
@@ -98,6 +103,7 @@ function pocketCheck(b, pockets, turn, pocketState) {
       b.pocketed = true; b.vx = 0; b.vy = 0;
       turn.pocketed.push(b.num);
       if (b.num === 0) turn.cueScratched = true;
+      if (ev) ev.push({ type: 'pocket', kind: b.num === 0 ? 'scratch' : 'legal' });
       return;
     }
   }
@@ -105,7 +111,7 @@ function pocketCheck(b, pockets, turn, pocketState) {
 
 const massOf = (b) => (b.heavyweight ? 3 : (b.lightweight ? 0.3 : 1));
 
-function collide(a, b, turn, effects) {
+function collide(a, b, turn, effects, ev) {
   const dx = b.x - a.x, dy = b.y - a.y;
   const dist = Math.hypot(dx, dy);
   const min = a.r + b.r;
@@ -130,6 +136,7 @@ function collide(a, b, turn, effects) {
     if (a.num === 0) turn.firstHit = b.num;
     else if (b.num === 0) turn.firstHit = a.num;
   }
+  if (ev) ev.push({ type: 'ball', impact: Math.min(Math.abs(dot) / 10, 1) });
 }
 
 function applyForces(b, dt, effects, pockets) {
@@ -180,6 +187,7 @@ function frictionFor(b, effects) {
 export function step(sim, pockets, dt, turn, env = {}) {
   const effects = env.effects || {};
   const pocketState = env.pocketState || null;
+  const ev = env.events || null; // optional sink for {ball|rail|pocket} sound events
   for (const b of sim) {
     if (b.pocketed) continue;
     applyForces(b, dt, effects, pockets);
@@ -190,13 +198,13 @@ export function step(sim, pockets, dt, turn, env = {}) {
     if (spd > MIN_SPEED) b.roll = (b.roll + spd * dt * 0.05) % (Math.PI * 2);
     if (Math.abs(b.vx) < MIN_SPEED && Math.abs(b.vy) < MIN_SPEED) { b.vx = 0; b.vy = 0; }
     else { b.x += b.vx * dt; b.y += b.vy * dt; }
-    railBounce(b, effects);
-    pocketCheck(b, pockets, turn, pocketState);
+    railBounce(b, effects, ev);
+    pocketCheck(b, pockets, turn, pocketState, ev);
   }
   for (let i = 0; i < sim.length; i++) {
     for (let j = i + 1; j < sim.length; j++) {
       if (sim[i].pocketed || sim[j].pocketed) continue;
-      collide(sim[i], sim[j], turn, effects);
+      collide(sim[i], sim[j], turn, effects, ev);
     }
   }
   return sim.some((b) => !b.pocketed && (Math.abs(b.vx) > MIN_SPEED || Math.abs(b.vy) > MIN_SPEED));

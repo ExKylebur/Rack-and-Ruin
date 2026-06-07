@@ -225,21 +225,36 @@ function releaseCharge() {
   else render();
 }
 
+const sfx = (m, ...a) => { try { window.SFX && window.SFX[m] && window.SFX[m](...a); } catch (e) { /* no audio */ } };
+function playEvents(evts) {
+  let ball = 0, rail = 0; // collapse many same-frame hits into one sound each
+  for (const e of evts) {
+    if (e.type === 'pocket') sfx('pocket', e.kind);
+    else if (e.type === 'ball') ball = Math.max(ball, e.impact);
+    else if (e.type === 'rail') rail = Math.max(rail, e.impact);
+  }
+  if (ball > 0.05) sfx('ballHit', ball);
+  if (rail > 0.05) sfx('railHit', rail, 'normal');
+}
+
 function shoot(power, angle) {
   sim = makeSim(state);
   applyShot(sim, power, angle, state.activeEffects);
   state.turn = freshTurn();
   state.turn.isBreak = !state.broken;
   ballsMoving = true;
+  sfx('shot', power);
   lastPhysTime = performance.now();
-  const env = { effects: state.activeEffects, pocketState: state.pocketState };
+  const env = { effects: state.activeEffects, pocketState: state.pocketState, events: [] };
   const tick = () => {
     const now = performance.now();
     const dt = Math.min((now - lastPhysTime) / 16.67, 3);
     lastPhysTime = now;
     let moving = false;
     const sub = 3;
+    env.events.length = 0;
     for (let i = 0; i < sub; i++) moving = step(sim, pocketsFor(state), dt / sub, state.turn, env);
+    playEvents(env.events);
     syncToState(state, sim);
     render();
     if (moving) {
@@ -342,6 +357,7 @@ function showGameOver(reason) {
   document.getElementById('overlayTitle').textContent = '🎱 Game Over!';
   document.getElementById('overlayMsg').textContent = state.gameOverReason;
   document.getElementById('overlay').classList.remove('hidden');
+  sfx('win');
 }
 
 function overlapsAnyBall(u, v, self) {
@@ -451,6 +467,7 @@ function processCardQueue() {
     render();
   } else {
     applyCard(state, item.id, item.opts);
+    sfx('cardPlayed', item.id);
     cardQueue.shift();
     updateEffects(); render();
     processCardQueue();
@@ -731,6 +748,7 @@ function applyOnlineSnapshot(snap) {
 function boot() {
   canvas = document.getElementById('tableCanvas');
   ctx = canvas.getContext('2d');
+  document.addEventListener('pointerdown', () => sfx('unlockFromGesture'), { once: true });
   sizeCanvas();
   wireInput();
   updateGuide();
