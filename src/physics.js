@@ -5,7 +5,7 @@
 // friction zones, magnet, crosswind, bouncer, bear trap, portals, per-rail bounce,
 // blocked/shrunk pockets, sticky cue, reverse spin. With no env it's plain pool.
 
-import { fitCanvas, playArea, pocketLayout, cushions, warpRail, toPx, toRel, unitsFor } from './geometry.js';
+import { fitCanvas, playArea, pocketLayout, cushions, toPx, toRel, unitsFor } from './geometry.js';
 
 const CANON = fitCanvas(1000, 1e9);
 const PA = playArea(CANON);
@@ -97,9 +97,8 @@ function collideFace(b, s, effects, ev) {
   }
 }
 
-function railBounce(b, effects, ev, warpFaces) {
+function railBounce(b, effects, ev) {
   for (const s of FACES) collideFace(b, s, effects, ev);
-  if (warpFaces) for (const s of warpFaces) collideFace(b, s, effects, ev);
   if (b.x - b.r < PA.left)   { b.x = PA.left + b.r;   if (b.vx < 0) b.vx = -b.vx * WALL_DAMP; }
   if (b.x + b.r > PA.right)  { b.x = PA.right - b.r;  if (b.vx > 0) b.vx = -b.vx * WALL_DAMP; }
   if (b.y - b.r < PA.top)    { b.y = PA.top + b.r;    if (b.vy < 0) b.vy = -b.vy * WALL_DAMP; }
@@ -225,8 +224,6 @@ export function step(sim, pockets, dt, turn, env = {}) {
   const effects = env.effects || {};
   const pocketState = env.pocketState || null;
   const ev = env.events || null; // optional sink for {ball|rail|pocket} sound events
-  // Warp Rail faces (in CANON, memoised on the env for the shot) join the cushions.
-  const warpFaces = env.warp ? (env._warpFaces ||= (warpRail(CANON, env.warp) || {}).faces || null) : null;
   for (const b of sim) {
     if (b.pocketed) continue;
     applyForces(b, dt, effects, pockets);
@@ -236,7 +233,7 @@ export function step(sim, pockets, dt, turn, env = {}) {
     if (spd > MIN_SPEED) b.roll = (b.roll + spd * dt * 0.05) % (Math.PI * 2);
     if (Math.abs(b.vx) < MIN_SPEED && Math.abs(b.vy) < MIN_SPEED) { b.vx = 0; b.vy = 0; }
     else { b.x += b.vx * dt; b.y += b.vy * dt; }
-    railBounce(b, effects, ev, warpFaces);
+    railBounce(b, effects, ev);
     pocketCheck(b, pockets, turn, pocketState, ev);
   }
   for (let i = 0; i < sim.length; i++) {

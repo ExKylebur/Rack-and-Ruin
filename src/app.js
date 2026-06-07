@@ -171,7 +171,6 @@ function startGame() {
   state.movedPockets = {};
   state.activeEffects = {};
   state.pocketState = {};
-  state.warp = null;
   state.players.forEach((p) => { p.hand = []; });
   placingCue = false;
   ballsMoving = false;
@@ -271,7 +270,7 @@ function shoot(power, angle) {
   ballsMoving = true;
   sfx('shot', power);
   lastPhysTime = performance.now();
-  const env = { effects: state.activeEffects, pocketState: state.pocketState, warp: state.warp, events: [] };
+  const env = { effects: state.activeEffects, pocketState: state.pocketState, events: [] };
   const tick = () => {
     const now = performance.now();
     const dt = Math.min((now - lastPhysTime) / 16.67, 3);
@@ -570,7 +569,7 @@ function resolvePick(x, y) {
     if (x > pa.left && x < pa.right && y > pa.top && y < pa.bottom) {
       const rel = toRel({ x, y }, state.dims);
       if (item.id === 'portal') (item.opts.positions ||= []).push(rel);
-      else if (item.id === 'move_hole' && item.opts.pocket !== undefined) {
+      else if ((item.id === 'move_hole' || item.id === 'warp_rail') && item.opts.pocket !== undefined) {
         // Can't drop a pocket on top of a ball — it would swallow it for free.
         const pr = unitsFor(state.dims).pocketR;
         const onBall = state.balls.some((b) => {
@@ -578,7 +577,7 @@ function resolvePick(x, y) {
           const bp = toPx({ u: b.u, v: b.v }, state.dims);
           return Math.hypot(bp.x - x, bp.y - y) < pr + r * (b.size || 1);
         });
-        if (onBall) { showToast("Can't move a pocket onto a ball"); return; }
+        if (onBall) { showToast("Can't drop a pocket onto a ball"); return; }
         item.opts.to = rel;
       }
       else item.opts.pos = rel;
@@ -793,7 +792,6 @@ function updateEffects() {
   add(e.portals && e.portals.length, '🌀 Portal');
   add(e.bounceHouseRail && e.bounceHouseRail.length, '🎪 Bounce: ' + (e.bounceHouseRail || []).join(', '));
   add(e.deadRail && e.deadRail.length, '🪵 Dead: ' + (e.deadRail || []).join(', '));
-  if (state.warp) chips.push('🌊 Warp');
   Object.keys(ps).forEach((i) => { if (ps[i].blocked) chips.push('🚫 Blocked'); if (ps[i].shrunk) chips.push('🔩 Shrunk'); });
   el.innerHTML = chips.length ? chips.map((c) => `<div class="effect-tag">${c}</div>`).join('')
     : '<span style="font-size:11px;color:#555">None</span>';
@@ -936,7 +934,7 @@ function boot() {
       sim = makeSim(state);
       applyShot(sim, power, angle, state.activeEffects, sp || spin);
       state.turn = freshTurn(); state.turn.isBreak = !state.broken;
-      const env = { effects: state.activeEffects, pocketState: state.pocketState, warp: state.warp };
+      const env = { effects: state.activeEffects, pocketState: state.pocketState };
       let f = 0; while (step(sim, pocketsFor(state), 1, state.turn, env) && f < 6000) f++;
       commit(state, sim); ballsMoving = false; resolveShot(); render();
       return { status: document.getElementById('statusMsg').textContent, groups: state.players.map((p) => p.group), pocketed: state.balls.filter((b) => b.pocketed).map((b) => b.num) };

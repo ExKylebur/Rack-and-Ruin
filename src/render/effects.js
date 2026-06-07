@@ -220,7 +220,7 @@ export function drawPlacementGhost(ctx, state, pick, hover, opts = {}) {
 
   ctx.save();
   ctx.globalAlpha = 0.7;
-  if (id === 'move_hole') {
+  if (id === 'move_hole' || id === 'warp_rail') {
     // A ball under the drop point makes the placement invalid (rejected on click).
     const onBall = state.balls.some((b) => {
       if (b.pocketed) return false;

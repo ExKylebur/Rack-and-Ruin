@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createGameState, rackBalls } from '../src/state.js';
-import { fitCanvas, playArea, cushions, warpRail } from '../src/geometry.js';
+import { fitCanvas, playArea, cushions } from '../src/geometry.js';
 import {
   makeSim, pocketsFor, freshTurn, applyShot, step, runToRest,
   BASE_BALL_R, MIN_SPEED,
@@ -147,21 +147,6 @@ test('side English deflects the cue off a straight hit', () => {
   const left = spinHit({ x: -1, y: 0 });
   assert.ok(Math.abs(right.vy) > 1, 'right English throws the cue sideways');
   assert.ok(Math.sign(right.vy) === -Math.sign(left.vy), 'left and right English deflect opposite ways');
-});
-
-test('Warp Rail bulges a cushion ridge into the bed and bounces a ball off it', () => {
-  const warp = { anchor: 1, turns: 3 };          // top side-pocket anchor
-  const wr = warpRail(CANON, warp);
-  assert.ok(wr && wr.faces.length === 2, 'warp yields two reflective faces');
-  const apex = wr.poly[1];
-  assert.ok(apex.y > PA.top + BASE_BALL_R + 10, 'ridge apex pokes well into the bed');
-  const b = { num: 2, x: apex.x, y: apex.y + 60, vx: 0, vy: -8, r: BASE_BALL_R, size: 1, pocketed: false, roll: 0 };
-  const sim = [b];
-  const turn = freshTurn();
-  const env = { warp };
-  for (let i = 0; i < 200 && b.vy <= 0; i++) step(sim, [], 1, turn, env);
-  assert.ok(b.vy > 0, 'ball rebounded back off the warp ridge');
-  assert.ok(b.y > PA.top + BASE_BALL_R + 10, 'rebounded at the ridge, inset from the rail');
 });
 
 test('applyShot scales English by shot power and arms it once', () => {

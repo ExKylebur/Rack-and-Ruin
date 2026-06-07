@@ -35,9 +35,8 @@ export function createGameState() {
     variant: 'eight',
     dims: { w: 0, h: 0 },
     balls: [],
-    movedPockets: {},      // pocketIndex -> {u,v}; Move Hole writes here
+    movedPockets: {},      // pocketIndex -> {u,v}; Move Hole / Warp Rail write here
     pocketState: {},        // pocketIndex -> {blocked,shrunk,open} flags
-    warp: null,             // null | { anchor: pocketIndex, turns } — Warp Rail ridge
     players: [],            // { name, group, hand:[cardId], seat }
     currentPlayer: 0,
     cardPhasePlayer: null,  // explicit; replaces fragile currentPlayer±1 math
@@ -152,7 +151,6 @@ export function serializeSnapshot(state) {
     })),
     movedPockets: state.movedPockets,
     pocketState: state.pocketState,
-    warp: state.warp,
     players: state.players.map((p) => ({
       name: p.name, group: p.group, seat: p.seat,
       hand: (p.hand || []).map((c) => (typeof c === 'string' ? c : c.id)),
@@ -180,7 +178,6 @@ export function applySnapshot(state, snap) {
   }));
   state.movedPockets = snap.movedPockets || {};
   state.pocketState = snap.pocketState || {};
-  state.warp = snap.warp || null;
   state.activeEffects = snap.activeEffects || {};
   state.currentPlayer = snap.currentPlayer;
   (snap.players || []).forEach((sp, i) => {

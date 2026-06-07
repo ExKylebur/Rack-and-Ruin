@@ -1,5 +1,5 @@
 // cards/effects.js — pure card appliers. apply(state, id, opts) mutates the state
-// (activeEffects / balls / movedPockets / warp / pocketState). `opts` carries the
+// (activeEffects / balls / movedPockets / pocketState). `opts` carries the
 // table picks the card needed (collected by the app from registry.interactions):
 //   { ball: num } | { pocket: idx } | { rail } | { pos:{u,v} } | { positions:[..] } | { to:{u,v} }
 //
@@ -60,11 +60,9 @@ const APPLIERS = {
   open_pocket: (s, o) => { const p = s.pocketState && s.pocketState[o.pocket]; if (p) { p.blocked = false; delete p.blockedTurns; } },
   pocket_shrink: (s, o) => { pstate(s, o.pocket).shrunk = true; pstate(s, o.pocket).shrunkTurns = 3; },
   move_hole: (s, o) => { (s.movedPockets ||= {})[o.pocket] = { ...o.to }; },
-  warp_rail: (s, o) => {
-    // Bulge an inward cushion ridge near the chosen pocket for a few turns.
-    // geometry.warpRail derives the shape; physics & render both read state.warp.
-    s.warp = { anchor: o.pocket, turns: 3 };
-  },
+  // Warp Rail relocates a pocket anywhere (like Move Hole); the app blocks drops
+  // onto a ball. Writes to movedPockets so physics/render already follow it.
+  warp_rail: (s, o) => { (s.movedPockets ||= {})[o.pocket] = { ...o.to }; },
   earthquake: (s) => {
     for (const b of s.balls) {
       if (b.pocketed) continue;
@@ -108,7 +106,6 @@ export function clearBallEffects(state) {
 export function decayTableEffects(state) {
   const e = state.activeEffects || {};
   if (e.crosswindTurns > 0 && --e.crosswindTurns <= 0) { delete e.crosswind; delete e.crosswindTurns; }
-  if (state.warp && state.warp.turns > 0 && --state.warp.turns <= 0) state.warp = null;
   const ps = state.pocketState || {};
   for (const idx of Object.keys(ps)) {
     const p = ps[idx];

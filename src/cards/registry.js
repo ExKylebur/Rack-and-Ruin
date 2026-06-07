@@ -34,7 +34,7 @@ export const CARD_POOL = [
   { id: 'block_pocket', name: 'Block Pocket', icon: '🚫', type: 'table', desc: 'Seal one pocket — balls bounce off it.', interactions: [{ type: 'pocket', prompt: 'Click a pocket to block.' }] },
   { id: 'open_pocket',  name: 'Open Pocket',  icon: '✅', type: 'table', desc: 'Re-open a blocked pocket.', interactions: [{ type: 'pocket', prompt: 'Click a blocked pocket.' }] },
   { id: 'move_hole',    name: 'Move Hole',    icon: '📍', type: 'table', desc: 'Drag any pocket to a new spot.', interactions: [{ type: 'pocket', prompt: 'Click a pocket to move.' }, { type: 'place', prompt: 'Click its new position.' }] },
-  { id: 'warp_rail',    name: 'Warp Rail',    icon: '🌊', type: 'table', desc: 'Pick a pocket, then warp the rails around it.', interactions: [{ type: 'pocket', prompt: 'Click a pocket anchor.' }] },
+  { id: 'warp_rail',    name: 'Warp Rail',    icon: '🌊', type: 'table', desc: 'Grab a pocket and drag it anywhere (not onto a ball).', interactions: [{ type: 'pocket', prompt: 'Click a pocket to grab.' }, { type: 'place', prompt: 'Click its new spot (not on a ball).' }] },
   { id: 'mud_patch',    name: 'Mud Patch',    icon: '💩', type: 'table', desc: 'Place a sticky zone — balls slow sharply.', interactions: [{ type: 'place', prompt: 'Click to place the mud patch.' }] },
   { id: 'crosswind',    name: 'Crosswind',    icon: '💨', type: 'table', desc: 'A permanent sideways drift nudges all balls.' },
   { id: 'pocket_shrink',name: 'Pocket Shrink',icon: '🔩', type: 'table', desc: 'Pick a pocket — shrinks to 65%.', interactions: [{ type: 'pocket', prompt: 'Click a pocket to shrink.' }] },
