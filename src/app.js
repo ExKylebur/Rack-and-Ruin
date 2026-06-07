@@ -46,7 +46,7 @@ let placingCue = false; // ball-in-hand after a scratch
 
 // card-phase runtime
 let cardPhaseActive = false;
-let phaseCards = [];        // [{ id, isNew }] shown in the card-phase overlay
+let phaseNewIds = null;     // Set of card ids drawn this phase (badged NEW in hand)
 let cardPhasePlaysLeft = 0; // remaining plays this card phase
 let pendingPick = null;     // { type, prompt } currently awaited on the table
 let pickHover = null;       // {x,y} cursor pos for the live placement ghost
@@ -175,8 +175,8 @@ function startGame() {
   placingCue = false;
   ballsMoving = false;
   spin = { x: 0, y: 0 }; updateSpinDial();
-  cardPhaseActive = false; pendingPick = null; phaseCards = []; cardPhasePlaysLeft = 0; cardQueue = [];
-  document.getElementById('cardOverlay').classList.add('hidden');
+  cardPhaseActive = false; pendingPick = null; phaseNewIds = null; cardPhasePlaysLeft = 0; cardQueue = [];
+  updateCardPhaseUI();
   setSetupVisible(false);
   document.getElementById('overlay').classList.add('hidden');
   sizeCanvas();
@@ -442,91 +442,84 @@ function drawCards(player) {
   return drawn;
 }
 
+// Card phase: the shooter draws into their hand, then plays cards FROM the hand
+// (right panel). Nothing fires on draw; a card only plays when its hand entry is
+// clicked, and a "now playing" banner makes the active card unmistakable.
 function beginCardPhase(playerIdx, onDone) {
   cardPhaseDone = onDone;
   state.cardPhasePlayer = playerIdx;
   const player = state.players[playerIdx];
-  const oldLen = player.hand.length;
   const drawn = drawCards(player);
   if (!player.hand.length) { state.cardPhasePlayer = null; cardPhaseDone = null; onDone(); return; }
   cardPhaseActive = true;
   cardPhasePlaysLeft = PLAY_PER_TURN;
-  // Snapshot the hand into clickable cards; the last `drawn.length` are new.
-  phaseCards = player.hand.map((id, slot) => ({ id, isNew: slot >= oldLen }));
-  document.getElementById('cardPhasePlayerName').textContent = player.name;
-  document.getElementById('cardPlayLimit').textContent = PLAY_PER_TURN;
-  document.getElementById('cardDrawInfo').textContent =
-    drawn.length ? `Drew ${drawn.length} new card${drawn.length > 1 ? 's' : ''}.` : 'Hand full — no new cards.';
-  buildCardPhaseUI();
-  document.getElementById('cardOverlay').classList.remove('hidden');
-}
-
-// Render the hand as two sections (Just Drawn / In Hand). Clicking a card PLAYS
-// it immediately (resolving its table picks) — nothing fires automatically. Any
-// card in the hand is playable, up to PLAY_PER_TURN plays per turn.
-function buildCardPhaseUI() {
-  const drawnGrid = document.getElementById('cardDrawnGrid');
-  const heldGrid = document.getElementById('cardHeldGrid');
-  drawnGrid.innerHTML = ''; heldGrid.innerHTML = '';
-  const canPlay = cardPhasePlaysLeft > 0;
-
-  const makeCard = (c) => {
-    const card = cardById(c.id);
-    const div = document.createElement('div');
-    div.className = 'card-pick-item' + (canPlay ? '' : ' disabled');
-    div.innerHTML = `<div class="cpicon">${card.icon || ''}</div><div class="cpname">${card.name}</div>`
-      + `<div class="cpdesc">${card.desc}</div><div class="cptag">${card.type}</div>`;
-    div.title = canPlay ? 'Click to play' : 'No plays left this turn';
-    div.addEventListener('click', () => { if (cardPhasePlaysLeft > 0) playCard(c); });
-    return div;
-  };
-  const fill = (grid, cards, empty) => {
-    if (!cards.length) { grid.innerHTML = `<span class="card-empty">${empty}</span>`; return; }
-    cards.forEach((c) => grid.appendChild(makeCard(c)));
-  };
-  fill(drawnGrid, phaseCards.filter((c) => c.isNew), '— none —');
-  fill(heldGrid, phaseCards.filter((c) => !c.isNew), '— none —');
-
-  document.getElementById('cardPlaysLeft').textContent =
-    canPlay ? `${cardPhasePlaysLeft} play${cardPhasePlaysLeft > 1 ? 's' : ''} left` : 'No plays left';
-  document.getElementById('cardDoneBtn').textContent = canPlay ? 'Done' : 'Continue';
-}
-
-// Play one chosen card now: pull it from the hand, hide the overlay, and resolve
-// it (table picks, then effect). When it settles we reopen the overlay for the
-// next play, or end the phase.
-function playCard(c) {
-  if (cardPhasePlaysLeft <= 0) return;
-  const player = state.players[state.cardPhasePlayer];
-  const ci = phaseCards.indexOf(c);
-  if (ci >= 0) phaseCards.splice(ci, 1);
-  const hi = player.hand.indexOf(c.id);
-  if (hi >= 0) player.hand.splice(hi, 1);
-  cardPhasePlaysLeft--;
-  cardPhaseActive = false;
-  document.getElementById('cardOverlay').classList.add('hidden');
-  cardQueue = [{ id: c.id, opts: {}, steps: [...(cardById(c.id).interactions || [])] }];
+  phaseNewIds = new Set(drawn);          // badge freshly drawn cards as NEW
+  if (drawn.length) showToast(`Drew: ${drawn.map((id) => cardById(id).name).join(', ')}`, 2200);
+  setStatus(`${player.name}: play cards from your hand, then Done`);
   updateHand();
+  updateCardPhaseUI();
+}
+
+// Show/hide the card-phase chrome: the "N plays left" tag + Done button by the
+// hand, and the "now playing" banner over the table while a pick is pending.
+function updateCardPhaseUI() {
+  const tag = document.getElementById('cardPhaseTag');
+  const hint = document.getElementById('cardPhaseHint');
+  const doneBtn = document.getElementById('cardDoneBtn');
+  const banner = document.getElementById('nowPlaying');
+  if (!cardPhaseActive) {
+    [tag, hint, doneBtn, banner].forEach((e) => e && e.classList.add('hidden'));
+    return;
+  }
+  if (pendingPick) {
+    const c = cardById(pendingPick.cardId);
+    banner.innerHTML = `<span class="np-title">▶ Playing ${c.icon || ''} ${c.name}</span>`
+      + `<span class="np-prompt">${pendingPick.prompt}</span>`;
+    banner.classList.remove('hidden');
+    tag.textContent = 'placing…'; tag.classList.remove('hidden');
+    hint.classList.add('hidden');
+    doneBtn.classList.add('hidden');
+  } else {
+    banner.classList.add('hidden');
+    const left = cardPhasePlaysLeft;
+    tag.textContent = left > 0 ? `${left} play${left > 1 ? 's' : ''} left` : 'no plays left';
+    tag.classList.remove('hidden');
+    hint.textContent = left > 0 ? 'Click a card to play it.' : 'Out of plays — click Done.';
+    hint.classList.remove('hidden');
+    doneBtn.textContent = left > 0 ? 'Done' : 'Continue';
+    doneBtn.classList.remove('hidden');
+  }
+}
+
+// Play the hand card at `slot`: pull it from the hand and resolve it (table picks,
+// then effect). When it settles we return to the hand for another play, or end.
+function playHandCard(slot) {
+  if (!cardPhaseActive || pendingPick || cardPhasePlaysLeft <= 0) return;
+  const player = state.players[state.cardPhasePlayer];
+  const id = player.hand[slot];
+  if (!id) return;
+  player.hand.splice(slot, 1);
+  cardPhasePlaysLeft--;
+  cardQueue = [{ id, opts: {}, steps: [...(cardById(id).interactions || [])] }];
+  updateHand();
+  updateCardPhaseUI();
   processCardQueue();
 }
 
-// Called when a played card has fully resolved: reopen the overlay for another
-// play, or finish the phase if out of plays / cards.
+// A played card has fully resolved: back to the hand for another play, or end.
 function afterCardResolved() {
   updateHand(); updateEffects(); render();
   const player = state.players[state.cardPhasePlayer];
   if (cardPhasePlaysLeft > 0 && player && player.hand.length) {
-    cardPhaseActive = true;
     setStatus(`${player.name}: play another card or click Done`);
-    buildCardPhaseUI();
-    document.getElementById('cardOverlay').classList.remove('hidden');
+    updateCardPhaseUI();
   } else {
     endCardPhase();
   }
 }
 
-function onCardPhaseDone() { endCardPhase(); }
-function onCardPhaseSkip() { endCardPhase(); }
+function onCardPhaseDone() { if (!pendingPick) endCardPhase(); }
+function onCardPhaseSkip() { if (!pendingPick) endCardPhase(); }
 
 function processCardQueue() {
   if (!cardQueue.length) { afterCardResolved(); return; }
@@ -536,6 +529,8 @@ function processCardQueue() {
     pendingPick = { type: s.type, prompt: s.prompt, cardId: item.id };
     pickHover = null; // ghost appears once the cursor moves over the bed
     setStatus(`${state.players[state.cardPhasePlayer].name}: ${s.prompt}`);
+    updateCardPhaseUI(); // show the "now playing" banner
+    updateHand();        // hand isn't clickable while a pick is in progress
     render();
   } else {
     applyCard(state, item.id, item.opts);
@@ -591,11 +586,12 @@ function resolvePick(x, y) {
 }
 
 function endCardPhase() {
-  document.getElementById('cardOverlay').classList.add('hidden');
-  cardPhaseActive = false; cardPhasePlaysLeft = 0;
-  pendingPick = null; pickHover = null; cardQueue = []; phaseCards = [];
+  cardPhaseActive = false; cardPhasePlaysLeft = 0; phaseNewIds = null;
+  pendingPick = null; pickHover = null; cardQueue = [];
+  updateCardPhaseUI();
   const done = cardPhaseDone; cardPhaseDone = null;
   state.cardPhasePlayer = null;
+  updateHand();
   if (done) done();
 }
 
@@ -764,14 +760,26 @@ function updatePlayers() {
 
 function updateHand() {
   const el = document.getElementById('handArea');
-  const p = state.players[state.currentPlayer];
+  // During the card phase show the shooter's hand (still the current player);
+  // it's interactive then. Otherwise it's a passive display of the turn-holder.
+  const pi = state.cardPhasePlayer != null ? state.cardPhasePlayer : state.currentPlayer;
+  const p = state.players[pi];
   if (!p || !p.hand.length) { el.innerHTML = '<span style="font-size:11px;color:#555">No cards</span>'; return; }
+  const playable = cardPhaseActive && !pendingPick && cardPhasePlaysLeft > 0;
+  const exhausted = cardPhaseActive && !pendingPick && cardPhasePlaysLeft <= 0;
   el.innerHTML = '';
-  p.hand.forEach((id) => {
+  p.hand.forEach((id, slot) => {
     const c = cardById(id); if (!c) return;
     const div = document.createElement('div');
-    div.className = 'card-item';
-    div.innerHTML = `<div class="card-name">${c.icon || ''} ${c.name}</div><div class="card-desc">${c.desc}</div>`;
+    div.className = 'card-item' + (playable ? ' playable' : '') + (exhausted ? ' disabled' : '');
+    const isNew = phaseNewIds && phaseNewIds.has(id) && cardPhaseActive;
+    div.innerHTML = `<div class="card-name">${c.icon || ''} ${c.name}`
+      + `${isNew ? '<span class="new-badge">NEW</span>' : ''}</div>`
+      + `<div class="card-desc">${c.desc}</div>`;
+    if (playable) {
+      div.title = 'Click to play';
+      div.addEventListener('click', () => playHandCard(slot));
+    }
     el.appendChild(div);
   });
 }
@@ -878,8 +886,8 @@ function copyInvite() {
 // Apply an incoming authoritative snapshot from the opponent.
 function applyOnlineSnapshot(snap) {
   applySnapshot(state, snap);
-  ballsMoving = false; cardPhaseActive = false; pendingPick = null; cardQueue = [];
-  document.getElementById('cardOverlay').classList.add('hidden');
+  ballsMoving = false; cardPhaseActive = false; pendingPick = null; cardPhasePlaysLeft = 0; phaseNewIds = null; cardQueue = [];
+  updateCardPhaseUI();
   if (state.started) { setSetupVisible(false); document.getElementById('shotBtn').classList.toggle('visible', controlMode === 'phone'); }
   placingCue = state.ballInHand && isMyTurn() && !state.gameOver;
   if (state.gameOver) {
@@ -946,7 +954,7 @@ function boot() {
     pick: () => pendingPick,
     queue: () => cardQueue.map((c) => ({ id: c.id, opts: c.opts, steps: c.steps.length })),
     cardPhaseActive: () => cardPhaseActive,
-    selected: () => phaseCards.map((c) => c.id),
+    playHand: (slot) => playHandCard(slot),
     clickRel: (u, v) => { const p = toPx({ u, v }, state.dims); if (pendingPick) resolvePick(p.x, p.y); else if (placingCue) placeCueAt(p.x, p.y); },
   };
 }

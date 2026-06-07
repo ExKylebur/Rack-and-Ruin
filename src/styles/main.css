@@ -194,9 +194,75 @@ body {
   border-color: #4a9eff;
 }
 
-.card-item.selected {
-  background: #1a4a1a;
-  border-color: #4aff4a;
+/* Playable hand cards during the card phase */
+.card-item.playable {
+  cursor: pointer;
+  border-color: #2f6db0;
+  box-shadow: 0 0 0 1px rgba(120, 200, 120, 0.25);
+}
+.card-item.playable:hover {
+  background: #16401f;
+  border-color: #4aff7a;
+  box-shadow: 0 0 8px rgba(74, 255, 122, 0.35);
+}
+.card-item.disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+.new-badge {
+  font-size: 9px;
+  font-weight: 700;
+  color: #08260f;
+  background: #4aff7a;
+  border-radius: 3px;
+  padding: 0 4px;
+  margin-left: 6px;
+  vertical-align: middle;
+}
+.card-phase-tag {
+  font-size: 10px;
+  font-weight: 600;
+  color: #08260f;
+  background: #ffd76a;
+  border-radius: 4px;
+  padding: 1px 6px;
+  margin-left: 6px;
+  vertical-align: middle;
+}
+.card-phase-hint {
+  font-size: 11px;
+  color: #9fd0ff;
+  margin-bottom: 6px;
+}
+
+/* "Now playing" banner over the table during a card's table pick */
+#nowPlaying {
+  position: absolute;
+  top: 10px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 40;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  padding: 8px 18px;
+  border-radius: 10px;
+  background: rgba(10, 22, 40, 0.94);
+  border: 1px solid #4aff7a;
+  box-shadow: 0 4px 18px rgba(0, 0, 0, 0.5);
+  pointer-events: none;
+  max-width: 90%;
+  text-align: center;
+}
+#nowPlaying .np-title {
+  font-weight: 700;
+  color: #eaf6ff;
+  font-size: 14px;
+}
+#nowPlaying .np-prompt {
+  font-size: 12px;
+  color: #ffd76a;
 }
 
 .card-item .card-name {
