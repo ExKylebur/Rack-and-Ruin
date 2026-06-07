@@ -122,3 +122,36 @@ test('a near head-on equal-mass hit transfers most speed to the target', () => {
   step(sim, [], 1, freshTurn());
   assert.ok(obj.vx > cue.vx, 'target leaves faster than the cue after a straight hit');
 });
+
+// ---- Cue spin / English ----
+// A straight head-on hit: bare cue stuns (~stops). One step lands the collision.
+function spinHit(spin) {
+  const cue = { num: 0, x: 200, y: 270, vx: 10, vy: 0, r: BASE_BALL_R, size: 1, pocketed: false, roll: 0, spin, _spinUsed: false };
+  const obj = { num: 3, x: 200 + 2 * BASE_BALL_R - 0.5, y: 270, vx: 0, vy: 0, r: BASE_BALL_R, size: 1, pocketed: false, roll: 0 };
+  const sim = [cue, obj];
+  step(sim, [], 1, freshTurn());
+  return cue;
+}
+
+test('topspin follows through and backspin draws the cue back after contact', () => {
+  const none = spinHit({ x: 0, y: 0 });
+  const follow = spinHit({ x: 0, y: 1 });
+  const draw = spinHit({ x: 0, y: -1 });
+  assert.ok(follow.vx > none.vx, 'follow carries the cue forward more than a plain hit');
+  assert.ok(draw.vx < none.vx, 'draw pulls the cue back relative to a plain hit');
+  assert.ok(draw.vx < 0, 'draw actually reverses the cue past a dead stop');
+});
+
+test('side English deflects the cue off a straight hit', () => {
+  const right = spinHit({ x: 1, y: 0 });
+  const left = spinHit({ x: -1, y: 0 });
+  assert.ok(Math.abs(right.vy) > 1, 'right English throws the cue sideways');
+  assert.ok(Math.sign(right.vy) === -Math.sign(left.vy), 'left and right English deflect opposite ways');
+});
+
+test('applyShot scales English by shot power and arms it once', () => {
+  const cue = { num: 0, x: 200, y: 270, vx: 0, vy: 0, r: BASE_BALL_R, size: 1, pocketed: false, roll: 0 };
+  applyShot([cue], 0.5, 0, {}, { x: 0, y: 1 });
+  assert.equal(cue.spin.y, 0.5, 'stored spin is scaled by the 0.5 power');
+  assert.equal(cue._spinUsed, false, 'spin is armed for the upcoming first contact');
+});

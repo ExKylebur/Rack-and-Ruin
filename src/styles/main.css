@@ -133,6 +133,49 @@ body {
   gap: 6px;
 }
 
+/* ---- Spin / English dial ---- */
+#spinDialWrap {
+  display: flex;
+  justify-content: center;
+  padding: 4px 0 2px;
+}
+#spinDial {
+  position: relative;
+  width: 84px;
+  height: 84px;
+  border-radius: 50%;
+  cursor: crosshair;
+  background: radial-gradient(circle at 38% 32%, #ffffff 0%, #e6e9ef 45%, #b8bdc8 100%);
+  border: 2px solid #2a2f3a;
+  box-shadow: inset 0 2px 5px rgba(255, 255, 255, 0.6), 0 2px 5px rgba(0, 0, 0, 0.5);
+  touch-action: none;
+}
+/* cross-hair guides */
+#spinDial::before,
+#spinDial::after {
+  content: '';
+  position: absolute;
+  background: rgba(60, 70, 90, 0.35);
+}
+#spinDial::before { left: 8%; right: 8%; top: 50%; height: 1px; }
+#spinDial::after { top: 8%; bottom: 8%; left: 50%; width: 1px; }
+#spinDial.spin-active {
+  box-shadow: inset 0 2px 5px rgba(255, 255, 255, 0.6), 0 0 0 2px rgba(220, 60, 60, 0.6), 0 2px 5px rgba(0, 0, 0, 0.5);
+}
+#spinDot {
+  position: absolute;
+  width: 13px;
+  height: 13px;
+  border-radius: 50%;
+  background: #dc2828;
+  border: 1px solid #fff;
+  transform: translate(-50%, -50%);
+  left: 50%;
+  top: 50%;
+  pointer-events: none;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.5);
+}
+
 .card-item {
   padding: 6px 8px;
   background: #0d2137;

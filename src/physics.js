@@ -41,7 +41,7 @@ export function makeSim(state) {
 export function pocketsFor(state) { return pocketLayout(CANON, state.movedPockets); }
 export function freshTurn() { return { firstHit: null, pocketed: [], cueScratched: false }; }
 
-export function applyShot(sim, power, angle, effects = {}) {
+export function applyShot(sim, power, angle, effects = {}, spin = { x: 0, y: 0 }) {
   const cue = sim.find((b) => b.num === 0 && !b.pocketed);
   if (!cue) return;
   let p = power;
@@ -50,6 +50,10 @@ export function applyShot(sim, power, angle, effects = {}) {
   let mult = effects.turbo ? 1.6 : 1;
   cue.vx = Math.cos(angle) * p * MAX_SHOT_SPEED * mult;
   cue.vy = Math.sin(angle) * p * MAX_SHOT_SPEED * mult;
+  // English: stored on the cue and consumed during the sim (post-contact path
+  // and rail rebound). Scaled by power so a soft tap carries little spin.
+  cue.spin = { x: (spin.x || 0) * p, y: (spin.y || 0) * p };
+  cue._spinUsed = false;
   // Drunk only sways the AIM (see app.js render); it must NOT perturb the struck
   // ball, so there is no velocity jitter here once the shot is committed.
 }
@@ -77,6 +81,14 @@ function collideFace(b, s, effects, ev) {
     const damp = railDampFor(s.rail, effects);
     b.vx = (b.vx - vn * nx) * TANG_DAMP - damp * vn * nx;
     b.vy = (b.vy - vn * ny) * TANG_DAMP - damp * vn * ny;
+    // Side English off a rail: add velocity along the rail tangent, then wash the
+    // spin out so it can't compound across multiple cushions.
+    if (b.num === 0 && b.spin && b.spin.x) {
+      const tx = -ny, ty = nx;
+      const boost = (-vn) * 0.28 * b.spin.x;
+      b.vx += tx * boost; b.vy += ty * boost;
+      b.spin = { x: b.spin.x * 0.4, y: b.spin.y };
+    }
     if (ev && -vn > 1) {
       const kind = (effects.bounceHouseRail && effects.bounceHouseRail.includes(s.rail)) ? 'bounce_house'
         : (effects.deadRail && effects.deadRail.includes(s.rail)) ? 'dead_rail' : 'normal';
@@ -127,6 +139,7 @@ function collide(a, b, turn, effects, ev) {
   b.x += nx * ov * 0.5; b.y += ny * ov * 0.5;
   const dot = (a.vx - b.vx) * nx + (a.vy - b.vy) * ny;
   if (dot <= 0) return;
+  const aSpd = Math.hypot(a.vx, a.vy), bSpd = Math.hypot(b.vx, b.vy); // pre-impact
   const ma = massOf(a), mb = massOf(b);
   const imp = (2 * dot) / (ma + mb);
   const rev = effects.reverseSpin ? -1 : 1;
@@ -136,6 +149,24 @@ function collide(a, b, turn, effects, ev) {
   if (effects.sticky && (a.num === 0 || b.num === 0)) {
     const cue = a.num === 0 ? a : b, obj = a.num === 0 ? b : a;
     if (!cue._stuck) { cue._stuck = true; const k = 0.35; cue.vx = cue.vx * (1 - k) + obj.vx * k; cue.vy = cue.vy * (1 - k) + obj.vy * k; }
+  }
+  // Cue English: a one-time impulse on the cue's first contact with an object
+  // ball. Top/back spin (spin.y) pushes it along/against the line of the hit
+  // (follow / draw); side spin (spin.x) deflects it sideways. Scaled by the
+  // cue's incoming speed so harder shots carry more action.
+  if ((a.num === 0) !== (b.num === 0)) {
+    const cue = a.num === 0 ? a : b, obj = a.num === 0 ? b : a;
+    const sp = cue.spin;
+    if (sp && !cue._spinUsed && (sp.x || sp.y)) {
+      let fx = obj.x - cue.x, fy = obj.y - cue.y;
+      const fl = Math.hypot(fx, fy) || 1; fx /= fl; fy /= fl;  // cue -> struck ball
+      const pxn = -fy, pyn = fx;                               // perpendicular
+      const e = (a.num === 0 ? aSpd : bSpd);                   // cue's incoming speed
+      const KF = 0.42, KS = 0.30;
+      cue.vx += fx * sp.y * e * KF + pxn * sp.x * e * KS;
+      cue.vy += fy * sp.y * e * KF + pyn * sp.x * e * KS;
+      cue._spinUsed = true;
+    }
   }
   if (turn.firstHit == null) {
     if (a.num === 0) turn.firstHit = b.num;

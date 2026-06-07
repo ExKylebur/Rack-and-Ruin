@@ -32,6 +32,7 @@ let controlMode = 'mouse';
 let onlineMode = 'local';
 let ballsMoving = false;
 let aimAngle = 0;
+let spin = { x: 0, y: 0 }; // cue English: x = side (-left..+right), y = top(+)/back(-)
 let shotPower = 0;
 let charging = false;
 let chargeStart = 0;
@@ -84,6 +85,7 @@ function render() {
   }
   // Fog of War masks everything but a sight beam down the (swayed) aim line.
   if (canAim && e.fogOfWar) drawFog(ctx, state, aimAngle + sway);
+  if (canAim && (spin.x || spin.y)) drawSpinMarker();
   if (placingCue) drawCuePlacement();
   if (pendingPick) {
     drawPickHighlights(ctx, state, pendingPick);
@@ -102,6 +104,21 @@ function startIdleLoop() {
     idleAnim = requestAnimationFrame(tick);
   };
   idleAnim = requestAnimationFrame(tick);
+}
+
+// A small dot on the cue ball showing where the tip will strike (the English).
+function drawSpinMarker() {
+  const cue = cuePx();
+  if (!cue) return;
+  const r = cue.r;
+  const mx = cue.x + spin.x * r * 0.62;
+  const my = cue.y - spin.y * r * 0.62;
+  ctx.save();
+  ctx.beginPath(); ctx.arc(mx, my, Math.max(2, r * 0.22), 0, Math.PI * 2);
+  ctx.fillStyle = 'rgba(220,40,40,0.9)';
+  ctx.fill();
+  ctx.strokeStyle = 'rgba(255,255,255,0.8)'; ctx.lineWidth = 1; ctx.stroke();
+  ctx.restore();
 }
 
 function drawCuePlacement() {
@@ -157,6 +174,7 @@ function startGame() {
   state.players.forEach((p) => { p.hand = []; });
   placingCue = false;
   ballsMoving = false;
+  spin = { x: 0, y: 0 }; updateSpinDial();
   cardPhaseActive = false; pendingPick = null; phaseCards = []; cardQueue = [];
   document.getElementById('cardOverlay').classList.add('hidden');
   setSetupVisible(false);
@@ -245,7 +263,8 @@ function playEvents(evts) {
 
 function shoot(power, angle) {
   sim = makeSim(state);
-  applyShot(sim, power, angle, state.activeEffects);
+  applyShot(sim, power, angle, state.activeEffects, spin);
+  spin = { x: 0, y: 0 }; updateSpinDial(); // spin is consumed by this shot
   state.turn = freshTurn();
   state.turn.isBreak = !state.broken;
   ballsMoving = true;
@@ -654,6 +673,7 @@ function wireInput() {
   const shotBtn = document.getElementById('shotBtn');
   shotBtn.addEventListener('pointerdown', () => { if (controlMode === 'phone') { shotBtn.classList.add('charging'); beginCharge(); } });
   shotBtn.addEventListener('pointerup', () => { shotBtn.classList.remove('charging'); releaseCharge(); });
+  wireSpinDial();
 }
 
 // ===================== UI PANELS =====================
@@ -668,6 +688,44 @@ function updatePowerBar(p) {
   } else {
     bar.style.display = 'none';
   }
+}
+
+// ---- Spin / English dial ----
+let spinDragging = false;
+function setSpinFromEvent(e) {
+  const dial = document.getElementById('spinDial');
+  if (!dial) return;
+  const rect = dial.getBoundingClientRect();
+  const R = rect.width / 2 - 7; // keep the dot inside the rim
+  let dx = (e.clientX - (rect.left + rect.width / 2)) / R;
+  let dy = (e.clientY - (rect.top + rect.height / 2)) / R;
+  const m = Math.hypot(dx, dy);
+  if (m > 1) { dx /= m; dy /= m; }
+  spin = { x: dx, y: -dy }; // screen-down is back spin, so invert y
+  updateSpinDial();
+  render();
+}
+function updateSpinDial() {
+  const dial = document.getElementById('spinDial');
+  if (!dial) return;
+  const dot = document.getElementById('spinDot');
+  const R = dial.clientWidth / 2 - 7;
+  dot.style.left = `${dial.clientWidth / 2 + spin.x * R}px`;
+  dot.style.top = `${dial.clientHeight / 2 - spin.y * R}px`;
+  dial.classList.toggle('spin-active', !!(spin.x || spin.y));
+}
+function wireSpinDial() {
+  const dial = document.getElementById('spinDial');
+  if (!dial) return;
+  dial.addEventListener('mousedown', (e) => { e.preventDefault(); spinDragging = true; setSpinFromEvent(e); });
+  window.addEventListener('mousemove', (e) => { if (spinDragging) setSpinFromEvent(e); });
+  window.addEventListener('mouseup', () => { spinDragging = false; });
+  dial.addEventListener('touchstart', (e) => { e.preventDefault(); setSpinFromEvent(e.touches[0]); }, { passive: false });
+  dial.addEventListener('touchmove', (e) => { e.preventDefault(); setSpinFromEvent(e.touches[0]); }, { passive: false });
+  // double-click / right-click clears the spin back to centre
+  dial.addEventListener('dblclick', () => { spin = { x: 0, y: 0 }; updateSpinDial(); render(); });
+  dial.addEventListener('contextmenu', (e) => { e.preventDefault(); spin = { x: 0, y: 0 }; updateSpinDial(); render(); });
+  updateSpinDial();
 }
 
 function updatePlayers() {
@@ -854,9 +912,9 @@ function boot() {
     shoot: (power, angle) => { aimAngle = angle; shoot(power, angle); },
     isMoving: () => ballsMoving,
     // headless shot: simulate to rest synchronously, then resolve (rAF-independent)
-    simShot: (power, angle) => {
+    simShot: (power, angle, sp) => {
       sim = makeSim(state);
-      applyShot(sim, power, angle, state.activeEffects);
+      applyShot(sim, power, angle, state.activeEffects, sp || spin);
       state.turn = freshTurn(); state.turn.isBreak = !state.broken;
       let f = 0; while (step(sim, pocketsFor(state), 1, state.turn, { effects: state.activeEffects, pocketState: state.pocketState }) && f < 6000) f++;
       commit(state, sim); ballsMoving = false; resolveShot(); render();
