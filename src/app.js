@@ -53,6 +53,7 @@ let pickHover = null;       // {x,y} cursor pos for the live placement ghost
 let cardQueue = [];         // [{ id, opts, steps:[...] }] being resolved
 let cardPhaseDone = null;   // callback to run when the card phase + picks finish
 let idleAnim = null;        // low-freq redraw for animated effects/picks
+let trapAnimUntil = 0;      // keep redrawing briefly so a bear-trap snap completes
 
 // ===================== CANVAS =====================
 function sizeCanvas() {
@@ -102,8 +103,9 @@ function startIdleLoop() {
     if (!state.started || state.gameOver) { idleAnim = null; return; }
     const e = state.activeEffects || {};
     const animatedFx = (e.portals && e.portals.length) || e.crosswind || e.magnet || e.turbo
-      || e.bouncer || e.icePatch || e.mudPatch || (e.bounceHouseRail && e.bounceHouseRail.length);
-    const animated = pendingPick || (e.drunk && !ballsMoving) || animatedFx;
+      || e.bouncer || e.icePatch || e.mudPatch || (e.bounceHouseRail && e.bounceHouseRail.length)
+      || performance.now() < trapAnimUntil;
+    const animated = pendingPick || placingCue || (e.drunk && !ballsMoving) || animatedFx;
     if (animated && !ballsMoving) render();
     idleAnim = requestAnimationFrame(tick);
   };
@@ -129,10 +131,18 @@ function drawCuePlacement() {
   const cue = cuePx();
   if (!cue) return;
   const bad = overlapsAnyBall(cue.ball.u, cue.ball.v, cue.ball);
+  const pulse = (Math.sin(performance.now() / 220) + 1) / 2;
   ctx.save();
-  ctx.strokeStyle = bad ? 'rgba(255,60,60,0.85)' : 'rgba(80,255,80,0.8)';
+  // pulsing halo so it's obvious the cue is being placed
+  ctx.beginPath();
+  ctx.arc(cue.x, cue.y, cue.r + 6 + pulse * 6, 0, Math.PI * 2);
+  ctx.fillStyle = bad ? `rgba(255,70,70,${0.10 + pulse * 0.16})` : `rgba(90,255,120,${0.10 + pulse * 0.16})`;
+  ctx.fill();
+  // dashed ring
+  ctx.strokeStyle = bad ? 'rgba(255,80,80,0.95)' : 'rgba(110,255,140,0.95)';
   ctx.lineWidth = 2;
   ctx.setLineDash([5, 4]);
+  ctx.lineDashOffset = -performance.now() / 60; // marching ants
   ctx.beginPath();
   ctx.arc(cue.x, cue.y, cue.r + 4, 0, Math.PI * 2);
   ctx.stroke();
@@ -175,7 +185,7 @@ function startGame() {
   state.activeEffects = {};
   state.pocketState = {};
   state.players.forEach((p) => { p.hand = []; });
-  placingCue = false;
+  placingCue = false; updateBallInHandUI();
   ballsMoving = false;
   spin = { x: 0, y: 0 }; updateSpinDial();
   cardPhaseActive = false; pendingPick = null; phaseNewIds = null; cardPhasePlaysLeft = 0; cardQueue = [];
@@ -254,14 +264,16 @@ function releaseCharge() {
 
 const sfx = (m, ...a) => { try { window.SFX && window.SFX[m] && window.SFX[m](...a); } catch (e) { /* no audio */ } };
 function playEvents(evts) {
-  let ball = 0, rail = 0; // collapse many same-frame hits into one sound each
+  let ball = 0, rail = 0, trap = false; // collapse many same-frame hits into one sound each
   for (const e of evts) {
     if (e.type === 'pocket') sfx('pocket', e.kind);
     else if (e.type === 'ball') ball = Math.max(ball, e.impact);
     else if (e.type === 'rail') rail = Math.max(rail, e.impact);
+    else if (e.type === 'beartrap') trap = true;
   }
   if (ball > 0.05) sfx('ballHit', ball);
   if (rail > 0.05) sfx('railHit', rail, 'normal');
+  if (trap) { sfx('railHit', 1, 'bear_trap'); trapAnimUntil = performance.now() + 400; } // metallic snap
 }
 
 function shoot(power, angle) {
@@ -342,7 +354,7 @@ function resolveShot() {
     placingCue = state.ballInHand && isMyTurn();
     if (state.ballInHand) setStatus(`${current().name}: ball in hand — place the cue ball, then shoot`);
     else setStatus(`${current().name}'s turn`);
-    updatePlayers(); updateEffects(); updateHand(); render();
+    updatePlayers(); updateEffects(); updateHand(); updateBallInHandUI(); render();
     maybePush();
   };
 
@@ -410,7 +422,7 @@ function placeCueAt(px, py) {
   const rel = toRel({ x, y }, state.dims);
   if (overlapsAnyBall(rel.u, rel.v, cue)) { showToast("Can't place there"); return; }
   cue.u = rel.u; cue.v = rel.v;
-  placingCue = false;
+  placingCue = false; updateBallInHandUI();
   state.ballInHand = false;
   setStatus(`${current().name}'s turn`);
   render();
@@ -456,11 +468,17 @@ function beginCardPhase(playerIdx, onDone) {
   if (!player.hand.length) { state.cardPhasePlayer = null; cardPhaseDone = null; onDone(); return; }
   cardPhaseActive = true;
   cardPhasePlaysLeft = PLAY_PER_TURN;
-  phaseNewIds = new Set(drawn);          // badge freshly drawn cards as NEW
-  if (drawn.length) showToast(`Drew: ${drawn.map((id) => cardById(id).name).join(', ')}`, 2200);
+  phaseNewIds = new Set(drawn);          // badge freshly drawn cards NEW in the hand
   setStatus(`${player.name}: play cards from your hand, then Done`);
   updateHand();
   updateCardPhaseUI();
+}
+
+// Show the prominent ball-in-hand banner whenever the local player must place the
+// cue ball after a scratch.
+function updateBallInHandUI() {
+  const el = document.getElementById('ballInHand');
+  if (el) el.classList.toggle('hidden', !placingCue);
 }
 
 // Show/hide the card-phase chrome: the "N plays left" tag + Done button by the
@@ -892,7 +910,7 @@ function applyOnlineSnapshot(snap) {
   ballsMoving = false; cardPhaseActive = false; pendingPick = null; cardPhasePlaysLeft = 0; phaseNewIds = null; cardQueue = [];
   updateCardPhaseUI();
   if (state.started) { setSetupVisible(false); document.getElementById('shotBtn').classList.toggle('visible', controlMode === 'phone'); }
-  placingCue = state.ballInHand && isMyTurn() && !state.gameOver;
+  placingCue = state.ballInHand && isMyTurn() && !state.gameOver; updateBallInHandUI();
   if (state.gameOver) {
     showGameOver(state.gameOverReason);
   } else if (isMyTurn()) {

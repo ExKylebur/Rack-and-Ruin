@@ -175,7 +175,7 @@ function collide(a, b, turn, effects, ev) {
   if (ev) ev.push({ type: 'ball', impact: Math.min(Math.abs(dot) / 10, 1) });
 }
 
-function applyForces(b, dt, effects, pockets) {
+function applyForces(b, dt, effects, pockets, ev) {
   if (effects.magnet) {
     const spd = Math.hypot(b.vx, b.vy);
     if (spd > 0.5) {
@@ -195,9 +195,14 @@ function applyForces(b, dt, effects, pockets) {
       if (vn < 0) { b.vx -= 2 * vn * nx * 0.92; b.vy -= 2 * vn * ny * 0.92; }
     }
   }
-  if (effects.bearTrap) {
+  if (effects.bearTrap && !effects.bearTrap.sprung) {
     const c = zpx(effects.bearTrap); const R = Z.trap + b.r;
-    if ((b.x - c.x) ** 2 + (b.y - c.y) ** 2 <= R * R && Math.hypot(b.vx, b.vy) > 0.35) { b.vx = 0; b.vy = 0; }
+    if ((b.x - c.x) ** 2 + (b.y - c.y) ** 2 <= R * R && Math.hypot(b.vx, b.vy) > 0.35) {
+      // Snaps shut on the FIRST ball it catches, then is spent (removed post-shot).
+      b.vx = 0; b.vy = 0;
+      effects.bearTrap.sprung = true;
+      if (ev) ev.push({ type: 'beartrap' });
+    }
   }
   if (effects.portals && effects.portals.length >= 2) {
     for (let i = 0; i < 2; i++) {
@@ -226,7 +231,7 @@ export function step(sim, pockets, dt, turn, env = {}) {
   const ev = env.events || null; // optional sink for {ball|rail|pocket} sound events
   for (const b of sim) {
     if (b.pocketed) continue;
-    applyForces(b, dt, effects, pockets);
+    applyForces(b, dt, effects, pockets, ev);
     const fr = Math.pow(frictionFor(b, effects), dt);
     b.vx *= fr; b.vy *= fr;
     const spd = Math.hypot(b.vx, b.vy);

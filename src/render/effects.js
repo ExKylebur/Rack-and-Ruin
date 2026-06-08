@@ -20,7 +20,7 @@ export function drawEffects(ctx, state) {
   if (e.icePatch) drawIce(ctx, at(e.icePatch), r * F.ice, t);
   if (e.mudPatch) drawMud(ctx, at(e.mudPatch), r * F.mud, t);
   if (e.bouncer) drawBouncer(ctx, at(e.bouncer), r * F.bouncer, t);
-  if (e.bearTrap) drawBearTrap(ctx, at(e.bearTrap), r * F.trap, t);
+  if (e.bearTrap) drawBearTrap(ctx, at(e.bearTrap), r * F.trap, t, !!e.bearTrap.sprung);
   if (e.portals && e.portals.length) {
     e.portals.forEach((pp, i) => drawPortal(ctx, at(pp), r * F.portal, t, i));
   }
@@ -221,42 +221,55 @@ function drawBouncer(ctx, p, rad, t) {
   ctx.restore();
 }
 
-// ---- Bear trap: sprung steel jaws with teeth -----------------------------------
-function drawBearTrap(ctx, p, rad, t) {
+// ---- Bear trap: two toothed jaws that SNAP shut when sprung ---------------------
+let trapSnapAt = null; // wall-clock ms when the current trap first showed sprung
+function drawBearTrap(ctx, p, rad, t, sprung) {
+  if (sprung) { if (trapSnapAt == null) trapSnapAt = t; } else trapSnapAt = null;
+  // close 0 = set/open, 1 = fully snapped (over ~160 ms, with a tiny overshoot)
+  let close = 0;
+  if (sprung) {
+    const k = Math.min((t - trapSnapAt) / 160, 1);
+    close = k < 0.85 ? k / 0.85 : 1 - (k - 0.85) / 0.15 * 0.06; // slam + settle
+  }
   const R = rad * 1.7;
+  const open = R * 0.62;                 // half-gap of the jaws when set
+  const gap = open * (1 - close);        // teeth tips meet at the centreline
   ctx.save();
   ctx.translate(p.x, p.y);
-  // ground plate / spring base
-  ctx.beginPath(); ctx.ellipse(0, R * 0.18, R * 0.95, R * 0.4, 0, 0, Math.PI * 2);
-  ctx.fillStyle = 'rgba(30,30,34,0.55)'; ctx.fill();
-  // round pressure plate in the middle
-  ctx.beginPath(); ctx.arc(0, 0, R * 0.34, 0, Math.PI * 2);
-  const pg = ctx.createRadialGradient(-R * 0.1, -R * 0.1, R * 0.05, 0, 0, R * 0.34);
+  // ground / spring base
+  ctx.beginPath(); ctx.ellipse(0, 0, R * 0.98, R * 0.92, 0, 0, Math.PI * 2);
+  ctx.fillStyle = 'rgba(28,28,32,0.5)'; ctx.fill();
+  // round pressure plate
+  ctx.beginPath(); ctx.arc(0, 0, R * 0.3, 0, Math.PI * 2);
+  const pg = ctx.createRadialGradient(-R * 0.08, -R * 0.08, R * 0.04, 0, 0, R * 0.3);
   pg.addColorStop(0, '#8a4a1e'); pg.addColorStop(1, '#3c2210');
   ctx.fillStyle = pg; ctx.fill();
-  // two semicircular jaws (left + right) with triangular teeth
-  for (const side of [-1, 1]) {
-    ctx.save();
-    ctx.scale(side, 1);
-    const a0 = -Math.PI / 2 + 0.15, a1 = Math.PI / 2 - 0.15;
-    ctx.beginPath(); ctx.arc(0, 0, R * 0.86, a0, a1);
-    ctx.lineWidth = R * 0.16; ctx.strokeStyle = '#9aa0a8'; ctx.lineCap = 'round'; ctx.stroke();
-    ctx.strokeStyle = 'rgba(255,255,255,0.35)'; ctx.lineWidth = R * 0.05; ctx.stroke();
-    // teeth pointing inward
+  // top jaw (teeth point down) and bottom jaw (teeth point up)
+  const halfW = R * 0.9, toothLen = R * 0.55, n = 6;
+  for (const sy of [-1, 1]) {
+    const baseY = sy * (gap + toothLen);
+    ctx.lineCap = 'round';
+    ctx.strokeStyle = '#9aa0a8'; ctx.lineWidth = R * 0.16;
+    ctx.beginPath();
+    ctx.moveTo(-halfW, baseY);
+    ctx.quadraticCurveTo(0, baseY + sy * R * 0.22, halfW, baseY);
+    ctx.stroke();
+    ctx.strokeStyle = 'rgba(255,255,255,0.3)'; ctx.lineWidth = R * 0.04; ctx.stroke();
     ctx.fillStyle = '#cdd2d8';
-    const N = 6;
-    for (let i = 0; i <= N; i++) {
-      const a = a0 + (a1 - a0) * (i / N);
-      const ox = Math.cos(a), oy = Math.sin(a);
-      const bx = ox * R * 0.78, by = oy * R * 0.78;     // base on inner edge
-      const tx = ox * R * 0.5, ty = oy * R * 0.5;        // tip toward centre
-      const px = -oy, py = ox;                            // tangent
+    for (let i = 0; i < n; i++) {
+      const x = -halfW + ((i + 0.5) / n) * halfW * 2;
       ctx.beginPath();
-      ctx.moveTo(bx + px * R * 0.09, by + py * R * 0.09);
-      ctx.lineTo(bx - px * R * 0.09, by - py * R * 0.09);
-      ctx.lineTo(tx, ty); ctx.closePath(); ctx.fill();
+      ctx.moveTo(x - R * 0.1, baseY);
+      ctx.lineTo(x + R * 0.1, baseY);
+      ctx.lineTo(x + (i % 2 ? 1 : -1) * R * 0.03, sy * gap); // tip toward centre
+      ctx.closePath(); ctx.fill();
     }
-    ctx.restore();
+  }
+  // a flash on the moment of the snap
+  if (sprung && close > 0.5 && close < 1) {
+    ctx.globalAlpha = (1 - close) * 1.2;
+    ctx.beginPath(); ctx.arc(0, 0, R * 0.5, 0, Math.PI * 2);
+    ctx.fillStyle = 'rgba(255,255,255,0.6)'; ctx.fill();
   }
   ctx.restore();
 }

@@ -48,11 +48,14 @@ const APPLIERS = {
   turbo: (s) => { ae(s).turbo = true; },
 
   // ---- table zones / rails / pockets ----
-  bouncer: (s, o) => { ae(s).bouncer = { ...o.pos }; },
+  // Rails (bounce_house / dead_rail) and felt zones (ice / mud) PERSIST; the
+  // other placed objects (bouncer / bear trap / portals) last one round (turn
+  // counter of 2, decremented each turn change like crosswind).
+  bouncer: (s, o) => { ae(s).bouncer = { ...o.pos }; ae(s).bouncerTurns = 2; },
   bounce_house: (s, o) => { (ae(s).bounceHouseRail ||= []); clearRail(s, o.rail); s.activeEffects.bounceHouseRail.push(o.rail); },
   dead_rail: (s, o) => { (ae(s).deadRail ||= []); clearRail(s, o.rail); s.activeEffects.deadRail.push(o.rail); },
-  bear_trap: (s, o) => { ae(s).bearTrap = { ...o.pos }; },
-  portal: (s, o) => { ae(s).portals = (o.positions || []).map((p) => ({ ...p })); },
+  bear_trap: (s, o) => { ae(s).bearTrap = { ...o.pos }; ae(s).bearTrapTurns = 2; },
+  portal: (s, o) => { ae(s).portals = (o.positions || []).map((p) => ({ ...p })); ae(s).portalTurns = 2; },
   ice_patch: (s, o) => { ae(s).icePatch = { ...o.pos }; },
   mud_patch: (s, o) => { ae(s).mudPatch = { ...o.pos }; },
   crosswind: (s) => { ae(s).crosswind = (Math.random() > 0.5 ? 1 : -1) * (0.3 + Math.random() * 0.4); ae(s).crosswindTurns = 2; },
@@ -102,10 +105,14 @@ export function clearBallEffects(state) {
   }
 }
 
-// Table effects with turn counters decay across turns; placed objects persist.
+// Table effects with turn counters decay across turns. Rails (bounce_house /
+// dead_rail) and felt zones (ice / mud) have NO counter, so they persist.
 export function decayTableEffects(state) {
   const e = state.activeEffects || {};
   if (e.crosswindTurns > 0 && --e.crosswindTurns <= 0) { delete e.crosswind; delete e.crosswindTurns; }
+  if (e.bouncerTurns > 0 && --e.bouncerTurns <= 0) { delete e.bouncer; delete e.bouncerTurns; }
+  if (e.bearTrapTurns > 0 && --e.bearTrapTurns <= 0) { delete e.bearTrap; delete e.bearTrapTurns; }
+  if (e.portalTurns > 0 && --e.portalTurns <= 0) { delete e.portals; delete e.portalTurns; }
   const ps = state.pocketState || {};
   for (const idx of Object.keys(ps)) {
     const p = ps[idx];
