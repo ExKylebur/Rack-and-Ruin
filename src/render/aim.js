@@ -1,6 +1,8 @@
-// render/aim.js — aim guide: dotted trajectory (with one rail/▢ ball stop),
-// a ghost cue ball at the contact point, and the cue stick pulled back by power.
-// Drawn in display pixels from the live state.
+// render/aim.js — aim guide: dotted line to the first rail/ball, a ghost cue ball
+// resting tangent at the exact contact point, the struck ball's cut line, and the
+// cue stick pulled back by power. Drawn in display pixels from the live state.
+// Contact uses analytic ray–circle intersection (no discrete stepping), so the
+// ghost never clips into the target as you slide the aim around it.
 
 import { playArea, toPx, unitsFor } from '../geometry.js';
 
@@ -19,52 +21,66 @@ export function drawAim(ctx, state, angle, power) {
   const base = unitsFor(state.dims).ballR;
 
   const dx = Math.cos(angle), dy = Math.sin(angle);
-  const step = Math.max(3, base * 0.35);
-  const maxLen = state.dims.w * 2.5;
 
-  let x = cue.x, y = cue.y, len = 0;
-  const pts = [{ x, y }];
-  let hit = false;
+  // Distance along the aim ray to the first rail (cue edge inset).
+  let railT = state.dims.w * 3;
+  if (dx > 1e-9) railT = Math.min(railT, (pa.right - cue.r - cue.x) / dx);
+  else if (dx < -1e-9) railT = Math.min(railT, (pa.left + cue.r - cue.x) / dx);
+  if (dy > 1e-9) railT = Math.min(railT, (pa.bottom - cue.r - cue.y) / dy);
+  else if (dy < -1e-9) railT = Math.min(railT, (pa.top + cue.r - cue.y) / dy);
+  if (!(railT > 0)) railT = state.dims.w * 3;
 
-  while (len < maxLen) {
-    x += dx * step; y += dy * step; len += step;
-    let stop = false;
-    if (x - cue.r < pa.left) { x = pa.left + cue.r; stop = true; }
-    else if (x + cue.r > pa.right) { x = pa.right - cue.r; stop = true; }
-    if (y - cue.r < pa.top) { y = pa.top + cue.r; stop = true; }
-    else if (y + cue.r > pa.bottom) { y = pa.bottom - cue.r; stop = true; }
-
-    for (const b of state.balls) {
-      if (b.pocketed || b.num === 0) continue;
-      const bp = toPx({ u: b.u, v: b.v }, state.dims);
-      const br = cue.r + base * (b.size || 1);
-      if ((bp.x - x) ** 2 + (bp.y - y) ** 2 < br * br) { hit = true; stop = true; break; }
-    }
-    pts.push({ x, y });
-    if (stop) break;
+  // Nearest object-ball contact via EXACT ray–circle intersection, so the ghost
+  // ball rests perfectly tangent to the target — sliding the aim around a ball no
+  // longer clips the ghost inside it (the old discrete march overshot by a step).
+  let ballT = Infinity, target = null;
+  for (const b of state.balls) {
+    if (b.pocketed || b.num === 0) continue;
+    const bp = toPx({ u: b.u, v: b.v }, state.dims);
+    const br = cue.r + base * (b.size || 1);
+    const fx = cue.x - bp.x, fy = cue.y - bp.y;
+    const proj = fx * dx + fy * dy;            // f·d (d is a unit vector)
+    const c = fx * fx + fy * fy - br * br;
+    const disc = proj * proj - c;
+    if (disc < 0) continue;                     // ray misses this ball
+    const t = -proj - Math.sqrt(disc);          // nearest entering distance
+    if (t > 0 && t < ballT) { ballT = t; target = bp; }
   }
 
+  const hit = ballT < railT;
+  const stopT = Math.min(ballT, railT);
+  const end = { x: cue.x + dx * stopT, y: cue.y + dy * stopT };
+
   ctx.save();
-  // dotted sight line
+  // dotted sight line from the cue ball to the contact point
   ctx.strokeStyle = `rgba(255,255,255,${0.38 + power * 0.32})`;
   ctx.lineWidth = 1.2;
   ctx.setLineDash([5, 7]);
   ctx.beginPath();
-  ctx.moveTo(pts[0].x, pts[0].y);
-  for (let i = 1; i < pts.length; i++) ctx.lineTo(pts[i].x, pts[i].y);
+  ctx.moveTo(cue.x, cue.y);
+  ctx.lineTo(end.x, end.y);
   ctx.stroke();
   ctx.setLineDash([]);
 
-  // ghost cue ball at the contact point
-  if (hit) {
-    const e = pts[pts.length - 1];
+  // ghost cue ball at the tangent contact point + the object ball's cut line
+  if (hit && target) {
     ctx.beginPath();
-    ctx.arc(e.x, e.y, cue.r, 0, Math.PI * 2);
+    ctx.arc(end.x, end.y, cue.r, 0, Math.PI * 2);
     ctx.fillStyle = 'rgba(255,255,255,0.16)';
     ctx.fill();
     ctx.strokeStyle = 'rgba(255,255,255,0.5)';
     ctx.lineWidth = 1.2;
     ctx.stroke();
+    // the struck ball is driven from the contact point through its own centre
+    let ox = target.x - end.x, oy = target.y - end.y;
+    const ol = Math.hypot(ox, oy) || 1; ox /= ol; oy /= ol;
+    ctx.strokeStyle = 'rgba(140,225,255,0.85)'; // cyan — high contrast on the felt
+    ctx.setLineDash([4, 5]);
+    ctx.beginPath();
+    ctx.moveTo(target.x, target.y);
+    ctx.lineTo(target.x + ox * base * 4, target.y + oy * base * 4);
+    ctx.stroke();
+    ctx.setLineDash([]);
   }
 
   // cue stick, butt behind the ball, pulled back with power
