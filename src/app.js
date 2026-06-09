@@ -14,7 +14,7 @@ import { drawBall } from './render/ball.js';
 import { drawAim } from './render/aim.js';
 import { drawEffects, drawEffectBadges, drawPickHighlights, drawFog, drawPlacementGhost } from './render/effects.js';
 import {
-  makeSim, pocketsFor, freshTurn, applyShot, step, syncToState, commit,
+  makeSim, pocketsFor, freshTurn, applyShot, step, syncToState, commit, MAX_SHOT_SPEED,
 } from './physics.js';
 import { CARD_POOL, cardById } from './cards/registry.js';
 import { applyCard, clearBallEffects, decayTableEffects } from './cards/effects.js';
@@ -971,6 +971,22 @@ function boot() {
     moveHole(i, u, v) { state.movedPockets[i] = { u, v }; render(); },
     setSize(num, size) { const b = state.balls.find((x) => x.num === num); if (b) { b.size = size; render(); } },
     refreshPanels: () => { updatePlayers(); updateHand(); updateEffects(); },
+    // Diagnostic: drive ball `num` at (power, angle) and run pure physics to rest
+    // (no rules/respot), returning whether it pocketed and where it ended.
+    simBall: (num, power, angle) => {
+      const sm = makeSim(state);
+      const ball = sm.find((b) => b.num === num);
+      if (!ball) return { error: 'no such ball' };
+      ball.vx = Math.cos(angle) * power * MAX_SHOT_SPEED;
+      ball.vy = Math.sin(angle) * power * MAX_SHOT_SPEED;
+      const turn = freshTurn();
+      const env = { effects: state.activeEffects, pocketState: state.pocketState };
+      let f = 0; while (step(sm, pocketsFor(state), 1, turn, env) && f < 6000) f++;
+      syncToState(state, sm);
+      const b2 = state.balls.find((b) => b.num === num);
+      render();
+      return { pocketed: !!b2.pocketed, restU: +b2.u.toFixed(3), restV: +b2.v.toFixed(3), frames: f };
+    },
     // card-phase debug
     pick: () => pendingPick,
     queue: () => cardQueue.map((c) => ({ id: c.id, opts: c.opts, steps: c.steps.length })),

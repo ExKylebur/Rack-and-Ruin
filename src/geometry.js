@@ -141,17 +141,18 @@ export function pocketLayout(dims, moved = {}) {
   const sr = u.sidePocketR * 0.55;
   const defaults = [
     { x: pa.left, y: pa.top, r: u.pocketR, label: 'TL' },
-    { x: pa.cx, y: pa.top - sr, r: u.sidePocketR, label: 'TM' },
+    { x: pa.cx, y: pa.top - sr, r: u.sidePocketR, label: 'TM', side: true },
     { x: pa.right, y: pa.top, r: u.pocketR, label: 'TR' },
     { x: pa.left, y: pa.bottom, r: u.pocketR, label: 'BL' },
-    { x: pa.cx, y: pa.bottom + sr, r: u.sidePocketR, label: 'BM' },
+    { x: pa.cx, y: pa.bottom + sr, r: u.sidePocketR, label: 'BM', side: true },
     { x: pa.right, y: pa.bottom, r: u.pocketR, label: 'BR' },
   ];
   return defaults.map((d, i) => {
+    const side = !!d.side;
     if (moved[i]) {
       const p = toPx(moved[i], dims);
-      return { x: p.x, y: p.y, r: d.r, label: d.label, index: i, moved: true };
+      return { x: p.x, y: p.y, r: d.r, label: d.label, side, index: i, moved: true };
     }
-    return { x: d.x, y: d.y, r: d.r, label: d.label, index: i, moved: false };
+    return { x: d.x, y: d.y, r: d.r, label: d.label, side, index: i, moved: false };
   });
 }

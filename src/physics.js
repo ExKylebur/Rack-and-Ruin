@@ -20,6 +20,7 @@ export const TANG_DAMP = 0.96;
 export const MIN_SPEED = 0.04;
 export const MAX_SHOT_SPEED = 38;
 export const POCKET_PULL_RADIUS = 1.15;
+export const SIDE_POCKET_PULL = 1.45; // wider: side pockets are recessed behind the rail
 
 // zone radii in CANON px
 const Z = { ice: U.ballR * 5.3, mud: U.ballR * 4.8, bouncer: U.ballR * 0.95, trap: U.ballR * 1.2, portal: U.ballR * 1.4 };
@@ -111,6 +112,11 @@ function pocketCheck(b, pockets, turn, pocketState, ev) {
     if (ps && ps.blocked) continue;
     const dx = b.x - p.x, dy = b.y - p.y;
     let cap = p.r * POCKET_PULL_RADIUS;
+    // Side pockets sit RECESSED behind the rail line, so their centre is ~1.4 ball
+    // radii past the cushion. With only the corner-sized capture, balls entering
+    // the sides of the mouth reach the jaw before the capture zone and rattle out.
+    // Widen the side capture so the whole mouth funnels in.
+    if (p.side) cap = p.r * SIDE_POCKET_PULL;
     if (ps && ps.shrunk) cap *= 0.65;
     // A moved (mid-table) hole has no cushion jaws to funnel the ball, so a ball
     // can coast to rest sitting ON the rim instead of dropping. Widen the capture
@@ -238,8 +244,10 @@ export function step(sim, pockets, dt, turn, env = {}) {
     if (spd > MIN_SPEED) b.roll = (b.roll + spd * dt * 0.05) % (Math.PI * 2);
     if (Math.abs(b.vx) < MIN_SPEED && Math.abs(b.vy) < MIN_SPEED) { b.vx = 0; b.vy = 0; }
     else { b.x += b.vx * dt; b.y += b.vy * dt; }
-    railBounce(b, effects, ev);
+    // Capture BEFORE bouncing: a ball that has reached a pocket's funnel should
+    // drop, not be deflected by a cushion jaw / rail in the same frame.
     pocketCheck(b, pockets, turn, pocketState, ev);
+    if (!b.pocketed) railBounce(b, effects, ev);
   }
   for (let i = 0; i < sim.length; i++) {
     for (let j = i + 1; j < sim.length; j++) {
