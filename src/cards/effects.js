@@ -63,9 +63,10 @@ const APPLIERS = {
   open_pocket: (s, o) => { const p = s.pocketState && s.pocketState[o.pocket]; if (p) { p.blocked = false; delete p.blockedTurns; } },
   pocket_shrink: (s, o) => { pstate(s, o.pocket).shrunk = true; pstate(s, o.pocket).shrunkTurns = 3; },
   move_hole: (s, o) => { (s.movedPockets ||= {})[o.pocket] = { ...o.to }; },
-  // Warp Rail relocates a pocket anywhere (like Move Hole); the app blocks drops
-  // onto a ball. Writes to movedPockets so physics/render already follow it.
-  warp_rail: (s, o) => { (s.movedPockets ||= {})[o.pocket] = { ...o.to }; },
+  // Warp Rail relocates a pocket AND bends the two rails meeting it (the `warp`
+  // flag tells geometry.cushions to move that boundary vertex). Move Hole leaves
+  // the rails straight. Both write movedPockets so the pocket capture/render follow.
+  warp_rail: (s, o) => { (s.movedPockets ||= {})[o.pocket] = { ...o.to, warp: true }; },
   earthquake: (s) => {
     for (const b of s.balls) {
       if (b.pocketed) continue;

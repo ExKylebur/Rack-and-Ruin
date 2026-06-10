@@ -90,7 +90,7 @@ function buildTableLayer(state) {
   ctx.strokeRect(pa.left, pa.top, pa.w, pa.h);
 
   // --- 3. Cushions: green bumpers on the bed edge, angled into the pockets ---
-  drawCushions(ctx, state.dims);
+  drawCushions(ctx, state.dims, state.movedPockets);
 
   // --- 4. Pocket holes (set into the rail at the corners / side midpoints) --
   pockets.forEach((p) => drawPocketHole(ctx, p));
@@ -165,8 +165,8 @@ function drawPocketHole(ctx, p) {
 // Each cushion is full-depth in the middle of the rail and RECEDES to the rail line
 // at each pocket via an angled facing — so the mouth opens toward the pocket and the
 // facing funnels the ball in (it does not jut across the hole).
-function drawCushions(ctx, dims) {
-  for (const c of cushions(dims).list) {
+function drawCushions(ctx, dims, moved) {
+  for (const c of cushions(dims, moved).list) {
     const [Mlo, Nlo, Nhi, Mhi] = c.poly; // M = rail line (near pockets), N = nose (interior)
     ctx.save();
     ctx.beginPath();

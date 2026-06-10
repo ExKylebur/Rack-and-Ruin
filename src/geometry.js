@@ -79,56 +79,72 @@ export const SIDE_CUT_DEG = 104;
 // Returns { nose, list: [{ poly:[{x,y}*4], faces:[{x1,y1,x2,y2,nx,ny}*3] }] }
 // where `poly` is the cushion outline (for drawing) and `faces` are the three
 // bed-facing segments (jaw, nose, jaw) with inward unit normals (for physics).
-export function cushions(dims) {
+// The table boundary is a 6-vertex polygon, one vertex per pocket (clockwise:
+// TL, TM, TR, BR, BM, BL). Each of the 6 edges between consecutive pockets is a
+// cushion. Warp Rail moves a pocket's vertex (moved[i].warp), so the two adjacent
+// edges bend to follow it; Move Hole (no warp flag) leaves the boundary straight.
+// With default vertices this reproduces the original axis-aligned table exactly.
+export function cushions(dims, moved = {}) {
   const pa = playArea(dims);
   const u = unitsFor(dims);
   const nose = u.cushion * CUSHION_NOSE_FRAC;
-  // How far from each pocket the cushion's rail end sits (the mouth half-width):
-  // bigger = wider opening. Corners get a generously wide mouth.
+  // Mouth half-width at each pocket (bigger = wider opening) and the along-rail
+  // run of the angled jaw facing (bigger = more visibly angled).
   const mhCorner = u.pocketR * 1.2;
   const mhSide = u.sidePocketR * 0.95;
-  // Along-rail run of the angled facing (bigger = more visibly angled jaw).
   const runCorner = nose * 1.35;
   const runSide = nose * 1.0;
-  const cx = pa.cx, cy = pa.cy;
 
-  const pt = (orient, along, coord) => (orient === 'h' ? { x: along, y: coord } : { x: coord, y: along });
-  // normal of p1->p2, oriented to point AWAY from the cushion body (toward the
-  // bed) by flipping it away from the piece centroid.
-  const seg = (p1, p2, ctr) => {
+  // Boundary vertex for pocket `idx`: its warped position if Warp Rail moved it,
+  // else its default rail-line corner/side point.
+  const vert = (idx, dx, dy, type) => {
+    const m = moved[idx];
+    const p = (m && m.warp) ? toPx(m, dims) : { x: dx, y: dy };
+    return { x: p.x, y: p.y, type };
+  };
+  const V = {
+    TL: vert(0, pa.left, pa.top, 'corner'),
+    TM: vert(1, pa.cx, pa.top, 'side'),
+    TR: vert(2, pa.right, pa.top, 'corner'),
+    BL: vert(3, pa.left, pa.bottom, 'corner'),
+    BM: vert(4, pa.cx, pa.bottom, 'side'),
+    BR: vert(5, pa.right, pa.bottom, 'corner'),
+  };
+  const edges = [
+    [V.TL, V.TM, 'top'], [V.TM, V.TR, 'top'],
+    [V.TR, V.BR, 'right'],
+    [V.BR, V.BM, 'bottom'], [V.BM, V.BL, 'bottom'],
+    [V.BL, V.TL, 'left'],
+  ];
+
+  // segment with an inward unit normal (oriented to agree with the edge's
+  // interior normal so every face pushes toward the bed).
+  const seg = (p1, p2, inx, iny, rail) => {
     let nx = -(p2.y - p1.y), ny = p2.x - p1.x;
     const L = Math.hypot(nx, ny) || 1; nx /= L; ny /= L;
-    const mx = (p1.x + p2.x) / 2, my = (p1.y + p2.y) / 2;
-    if ((mx - ctr.x) * nx + (my - ctr.y) * ny < 0) { nx = -nx; ny = -ny; }
-    return { x1: p1.x, y1: p1.y, x2: p2.x, y2: p2.y, nx, ny };
+    if (nx * inx + ny * iny < 0) { nx = -nx; ny = -ny; }
+    return { x1: p1.x, y1: p1.y, x2: p2.x, y2: p2.y, nx, ny, rail };
   };
 
-  function span(orient, railC, noseC, lo, hi, rail) {
-    const loMh = lo.type === 'corner' ? mhCorner : mhSide;
-    const loRun = lo.type === 'corner' ? runCorner : runSide;
-    const hiMh = hi.type === 'corner' ? mhCorner : mhSide;
-    const hiRun = hi.type === 'corner' ? runCorner : runSide;
-    const Mlo = pt(orient, lo.along + loMh, railC);
-    const Nlo = pt(orient, lo.along + loMh + loRun, noseC);
-    const Nhi = pt(orient, hi.along - hiMh - hiRun, noseC);
-    const Mhi = pt(orient, hi.along - hiMh, railC);
-    const poly = [Mlo, Nlo, Nhi, Mhi];
-    const ctr = poly.reduce((a, p) => ({ x: a.x + p.x / 4, y: a.y + p.y / 4 }), { x: 0, y: 0 });
-    const tag = (sg) => { sg.rail = rail; return sg; };
-    return { rail, poly, faces: [tag(seg(Mlo, Nlo, ctr)), tag(seg(Nlo, Nhi, ctr)), tag(seg(Nhi, Mhi, ctr))] };
-  }
+  const buildEdge = (A, B, rail) => {
+    let ex = B.x - A.x, ey = B.y - A.y;
+    const L = Math.hypot(ex, ey) || 1; ex /= L; ey /= L;       // along-edge unit
+    const inx = -ey, iny = ex;                                  // interior normal (CW winding)
+    const loMh = A.type === 'corner' ? mhCorner : mhSide;
+    const loRun = A.type === 'corner' ? runCorner : runSide;
+    const hiMh = B.type === 'corner' ? mhCorner : mhSide;
+    const hiRun = B.type === 'corner' ? runCorner : runSide;
+    const Mlo = { x: A.x + ex * loMh, y: A.y + ey * loMh };
+    const Nlo = { x: A.x + ex * (loMh + loRun) + inx * nose, y: A.y + ey * (loMh + loRun) + iny * nose };
+    const Nhi = { x: B.x - ex * (hiMh + hiRun) + inx * nose, y: B.y - ey * (hiMh + hiRun) + iny * nose };
+    const Mhi = { x: B.x - ex * hiMh, y: B.y - ey * hiMh };
+    return {
+      rail, poly: [Mlo, Nlo, Nhi, Mhi],
+      faces: [seg(Mlo, Nlo, inx, iny, rail), seg(Nlo, Nhi, inx, iny, rail), seg(Nhi, Mhi, inx, iny, rail)],
+    };
+  };
 
-  const corner = (along) => ({ along, type: 'corner' });
-  const side = (along) => ({ along, type: 'side' });
-  const list = [
-    span('h', pa.top, pa.top + nose, corner(pa.left), side(cx), 'top'),
-    span('h', pa.top, pa.top + nose, side(cx), corner(pa.right), 'top'),
-    span('h', pa.bottom, pa.bottom - nose, corner(pa.left), side(cx), 'bottom'),
-    span('h', pa.bottom, pa.bottom - nose, side(cx), corner(pa.right), 'bottom'),
-    span('v', pa.left, pa.left + nose, corner(pa.top), corner(pa.bottom), 'left'),
-    span('v', pa.right, pa.right - nose, corner(pa.top), corner(pa.bottom), 'right'),
-  ];
-  return { nose, list };
+  return { nose, list: edges.map(([A, B, rail]) => buildEdge(A, B, rail)) };
 }
 
 // The six pockets in pixels. `moved` maps pocketIndex -> {u,v} for any pocket

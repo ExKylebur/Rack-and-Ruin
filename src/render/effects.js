@@ -525,6 +525,20 @@ export function drawPlacementGhost(ctx, state, pick, hover, opts = {}) {
       const bp = toPx({ u: b.u, v: b.v }, state.dims);
       return Math.hypot(bp.x - x, bp.y - y) < u.pocketR + r * (b.size || 1);
     });
+    // Warp Rail: preview the two rails bending from their neighbours to the cursor.
+    if (id === 'warp_rail' && opts.pocket != null) {
+      const dv = (i) => {
+        const m = state.movedPockets && state.movedPockets[i];
+        if (m && m.warp) return toPx(m, state.dims);
+        return [{ x: pa.left, y: pa.top }, { x: pa.cx, y: pa.top }, { x: pa.right, y: pa.top },
+          { x: pa.left, y: pa.bottom }, { x: pa.cx, y: pa.bottom }, { x: pa.right, y: pa.bottom }][i];
+      };
+      const NEIGH = { 0: [3, 1], 1: [0, 2], 2: [1, 5], 5: [2, 4], 4: [5, 3], 3: [4, 0] };
+      const ns = NEIGH[opts.pocket] || [];
+      ctx.strokeStyle = 'rgba(120,230,150,0.85)'; ctx.lineWidth = 3; ctx.setLineDash([7, 5]);
+      ns.forEach((ni) => { const v = dv(ni); ctx.beginPath(); ctx.moveTo(v.x, v.y); ctx.lineTo(x, y); ctx.stroke(); });
+      ctx.setLineDash([]);
+    }
     ctx.beginPath(); ctx.arc(x, y, u.pocketR, 0, Math.PI * 2);
     ctx.fillStyle = 'rgba(4,4,4,0.7)'; ctx.fill();
     ctx.strokeStyle = onBall ? 'rgba(255,60,60,0.95)' : 'rgba(255,215,0,0.9)';

@@ -98,8 +98,8 @@ function collideFace(b, s, effects, ev) {
   }
 }
 
-function railBounce(b, effects, ev) {
-  for (const s of FACES) collideFace(b, s, effects, ev);
+function railBounce(b, effects, ev, faces) {
+  for (const s of (faces || FACES)) collideFace(b, s, effects, ev);
   if (b.x - b.r < PA.left)   { b.x = PA.left + b.r;   if (b.vx < 0) b.vx = -b.vx * WALL_DAMP; }
   if (b.x + b.r > PA.right)  { b.x = PA.right - b.r;  if (b.vx > 0) b.vx = -b.vx * WALL_DAMP; }
   if (b.y - b.r < PA.top)    { b.y = PA.top + b.r;    if (b.vy < 0) b.vy = -b.vy * WALL_DAMP; }
@@ -235,6 +235,13 @@ export function step(sim, pockets, dt, turn, env = {}) {
   const effects = env.effects || {};
   const pocketState = env.pocketState || null;
   const ev = env.events || null; // optional sink for {ball|rail|pocket} sound events
+  // Warp Rail bends the cushions, so recompute faces in CANON when a pocket is
+  // warped (memoised on the env for the shot); otherwise use the cached straight ones.
+  let faces = FACES;
+  const mp = env.movedPockets;
+  if (mp && Object.values(mp).some((m) => m && m.warp)) {
+    faces = env._faces || (env._faces = cushions(CANON, mp).list.flatMap((c) => c.faces));
+  }
   for (const b of sim) {
     if (b.pocketed) continue;
     applyForces(b, dt, effects, pockets, ev);
@@ -247,7 +254,7 @@ export function step(sim, pockets, dt, turn, env = {}) {
     // Capture BEFORE bouncing: a ball that has reached a pocket's funnel should
     // drop, not be deflected by a cushion jaw / rail in the same frame.
     pocketCheck(b, pockets, turn, pocketState, ev);
-    if (!b.pocketed) railBounce(b, effects, ev);
+    if (!b.pocketed) railBounce(b, effects, ev, faces);
   }
   for (let i = 0; i < sim.length; i++) {
     for (let j = i + 1; j < sim.length; j++) {
