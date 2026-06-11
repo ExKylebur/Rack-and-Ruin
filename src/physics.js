@@ -93,7 +93,7 @@ function collideFace(b, s, effects, ev) {
     if (ev && -vn > 1) {
       const kind = (effects.bounceHouseRail && effects.bounceHouseRail.includes(s.rail)) ? 'bounce_house'
         : (effects.deadRail && effects.deadRail.includes(s.rail)) ? 'dead_rail' : 'normal';
-      ev.push({ type: 'rail', impact: Math.min(-vn / 8, 1), rail: kind });
+      ev.push({ type: 'rail', impact: Math.min(-vn / 8, 1), rail: kind, ...toRel({ x: b.x, y: b.y }, CANON) });
     }
   }
 }
@@ -126,7 +126,7 @@ function pocketCheck(b, pockets, turn, pocketState, ev) {
       b.pocketed = true; b.vx = 0; b.vy = 0;
       turn.pocketed.push(b.num);
       if (b.num === 0) turn.cueScratched = true;
-      if (ev) ev.push({ type: 'pocket', kind: b.num === 0 ? 'scratch' : 'legal' });
+      if (ev) ev.push({ type: 'pocket', kind: b.num === 0 ? 'scratch' : 'legal', num: b.num, ...toRel({ x: p.x, y: p.y }, CANON) });
       return;
     }
   }
@@ -178,7 +178,7 @@ function collide(a, b, turn, effects, ev) {
     if (a.num === 0) turn.firstHit = b.num;
     else if (b.num === 0) turn.firstHit = a.num;
   }
-  if (ev) ev.push({ type: 'ball', impact: Math.min(Math.abs(dot) / 10, 1) });
+  if (ev) ev.push({ type: 'ball', impact: Math.min(Math.abs(dot) / 10, 1), ...toRel({ x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 }, CANON) });
 }
 
 function applyForces(b, dt, effects, pockets, ev) {
@@ -207,7 +207,7 @@ function applyForces(b, dt, effects, pockets, ev) {
       // Snaps shut on the FIRST ball it catches, then is spent (removed post-shot).
       b.vx = 0; b.vy = 0;
       effects.bearTrap.sprung = true;
-      if (ev) ev.push({ type: 'beartrap' });
+      if (ev) ev.push({ type: 'beartrap', ...toRel({ x: b.x, y: b.y }, CANON) });
     }
   }
   if (effects.portals && effects.portals.length >= 2) {

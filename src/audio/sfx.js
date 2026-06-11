@@ -184,12 +184,27 @@
     pocket(kind) {
       if (!this.canPlay('pocket_' + (kind || 'obj'), 60)) return;
       if (kind === 'scratch' || kind === 'cue') {
-        this.noiseBurst({ duration: 0.06, level: 0.2, hp: 120, lp: 1200 });
-        this.tone({ type: 'triangle', freq: 210, freqTo: 80, duration: 0.16, level: 0.15 });
+        // hollow, disappointed thud for a scratch
+        this.noiseBurst({ duration: 0.07, level: 0.22, hp: 90, lp: 900 });
+        this.tone({ type: 'triangle', freq: 190, freqTo: 62, duration: 0.22, level: 0.16 });
+        this.tone({ type: 'sine', freq: 130, freqTo: 55, duration: 0.3, level: 0.12, delay: 0.05 });
         return;
       }
-      this.noiseBurst({ duration: 0.05, level: 0.15, hp: 180, lp: 1800 });
-      this.tone({ type: 'sine', freq: 290, freqTo: 130, duration: 0.12, level: 0.1 });
+      // leather-pocket thunk…
+      this.noiseBurst({ duration: 0.045, level: 0.18, hp: 140, lp: 1500 });
+      this.tone({ type: 'sine', freq: 255, freqTo: 105, duration: 0.13, level: 0.14 });
+      // …then the ball rattling away down the return: softening wooden knocks
+      [0.09, 0.18, 0.29].forEach((d, i) => {
+        this.tone({ type: 'triangle', freq: 330 - i * 62, freqTo: 150 - i * 28, duration: 0.05, level: 0.09 - i * 0.024, delay: d });
+        this.noiseBurst({ duration: 0.02, level: 0.06 - i * 0.016, hp: 400, lp: 2600, delay: d });
+      });
+    }
+
+    // Soft UI tick for buttons / card plays.
+    click() {
+      if (!this.canPlay('click', 50)) return;
+      this.noiseBurst({ duration: 0.018, level: 0.05, hp: 1500, lp: 9000 });
+      this.tone({ type: 'sine', freq: 740, freqTo: 540, duration: 0.045, level: 0.06 });
     }
 
     cardPlayed(cardId) {
@@ -264,10 +279,14 @@
     }
 
     win() {
-      this.tone({ type: 'sine', freq: 523, freqTo: 1047, duration: 0.35, level: 0.22 });
-      this.tone({ type: 'sine', freq: 659, freqTo: 1318, duration: 0.3, level: 0.16, delay: 0.08 });
-      this.noiseBurst({ duration: 0.06, level: 0.1, hp: 800, lp: 5000, delay: 0.05 });
-      this.tone({ type: 'triangle', freq: 784, freqTo: 1568, duration: 0.28, level: 0.14, delay: 0.16 });
+      // rising C-major fanfare with an octave sparkle on each note
+      const notes = [523.25, 659.25, 783.99, 1046.5];
+      notes.forEach((f, i) => {
+        this.tone({ type: 'triangle', freq: f, freqTo: f, duration: 0.34, level: 0.16, delay: i * 0.11 });
+        this.tone({ type: 'sine', freq: f * 2, freqTo: f * 2, duration: 0.2, level: 0.05, delay: i * 0.11 + 0.01 });
+      });
+      this.noiseBurst({ duration: 0.22, level: 0.05, hp: 3500, lp: 13000, delay: 0.44 });
+      this.tone({ type: 'sine', freq: 1046.5, freqTo: 1568, duration: 0.5, level: 0.1, delay: 0.5 });
     }
 
     boing(level) {

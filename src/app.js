@@ -13,6 +13,7 @@ import { drawTable } from './render/table.js';
 import { drawBall } from './render/ball.js';
 import { drawAim } from './render/aim.js';
 import { drawEffects, drawEffectBadges, drawPickHighlights, drawFog, drawPlacementGhost } from './render/effects.js';
+import * as particles from './render/particles.js';
 import {
   makeSim, pocketsFor, freshTurn, applyShot, step, syncToState, commit, MAX_SHOT_SPEED,
 } from './physics.js';
@@ -79,6 +80,7 @@ function render() {
   drawEffects(ctx, state);                 // zone/rail art, under the balls
   for (const b of state.balls) drawBall(ctx, b, state);
   drawEffectBadges(ctx, state);            // status glyphs, over the balls
+  particles.updateAndDraw(ctx, state.dims); // cosmetic juice, on top
   const e = state.activeEffects || {};
   const canAim = state.started && !state.gameOver && !ballsMoving && !placingCue
     && !cardPhaseActive && !pendingPick && !!cuePx();
@@ -105,7 +107,8 @@ function startIdleLoop() {
     const animatedFx = (e.portals && e.portals.length) || e.crosswind || e.magnet || e.turbo
       || e.bouncer || e.icePatch || e.mudPatch || (e.bounceHouseRail && e.bounceHouseRail.length)
       || performance.now() < trapAnimUntil;
-    const animated = pendingPick || placingCue || (e.drunk && !ballsMoving) || animatedFx;
+    const animated = pendingPick || placingCue || (e.drunk && !ballsMoving) || animatedFx
+      || particles.alive();
     if (animated && !ballsMoving) render();
     idleAnim = requestAnimationFrame(tick);
   };
@@ -189,6 +192,7 @@ function startGame() {
   ballsMoving = false;
   spin = { x: 0, y: 0 }; updateSpinDial();
   cardPhaseActive = false; pendingPick = null; phaseNewIds = null; cardPhasePlaysLeft = 0; cardQueue = [];
+  particles.clear();
   updateCardPhaseUI();
   setSetupVisible(false);
   document.getElementById('overlay').classList.add('hidden');
@@ -265,11 +269,25 @@ function releaseCharge() {
 const sfx = (m, ...a) => { try { window.SFX && window.SFX[m] && window.SFX[m](...a); } catch (e) { /* no audio */ } };
 function playEvents(evts) {
   let ball = 0, rail = 0, trap = false; // collapse many same-frame hits into one sound each
+  const px = (e) => (e.u !== undefined ? toPx({ u: e.u, v: e.v }, state.dims) : null);
   for (const e of evts) {
-    if (e.type === 'pocket') sfx('pocket', e.kind);
-    else if (e.type === 'ball') ball = Math.max(ball, e.impact);
-    else if (e.type === 'rail') rail = Math.max(rail, e.impact);
-    else if (e.type === 'beartrap') trap = true;
+    const p = px(e);
+    if (e.type === 'pocket') {
+      sfx('pocket', e.kind);
+      if (p) {
+        const b = state.balls.find((x) => x.num === e.num);
+        particles.spawnPocketDrop(p.x, p.y, (b && b.c) || '#ffffff');
+      }
+    } else if (e.type === 'ball') {
+      ball = Math.max(ball, e.impact);
+      if (p && e.impact > 0.45) particles.spawnHitFlash(p.x, p.y, e.impact);
+    } else if (e.type === 'rail') {
+      rail = Math.max(rail, e.impact);
+      if (p && e.impact > 0.25) particles.spawnRailDust(p.x, p.y, e.impact);
+    } else if (e.type === 'beartrap') {
+      trap = true;
+      if (p) particles.spawnSparks(p.x, p.y);
+    }
   }
   if (ball > 0.05) sfx('ballHit', ball);
   if (rail > 0.05) sfx('railHit', rail, 'normal');
@@ -284,6 +302,8 @@ function shoot(power, angle) {
   state.turn.isBreak = !state.broken;
   ballsMoving = true;
   sfx('shot', power);
+  const cp = cuePx();
+  if (cp) particles.spawnChalkPuff(cp.x, cp.y, angle, power);
   lastPhysTime = performance.now();
   const env = { effects: state.activeEffects, pocketState: state.pocketState, movedPockets: state.movedPockets, events: [] };
   const tick = () => {
@@ -928,6 +948,10 @@ function boot() {
   canvas = document.getElementById('tableCanvas');
   ctx = canvas.getContext('2d');
   document.addEventListener('pointerdown', () => sfx('unlockFromGesture'), { once: true });
+  // soft tick on interactive chrome (buttons, playable cards, the spin dial)
+  document.addEventListener('click', (e) => {
+    if (e.target.closest && e.target.closest('.btn, .card-item.playable, #spinDial')) sfx('click');
+  });
   sizeCanvas();
   wireInput();
   updateGuide();
