@@ -1,18 +1,20 @@
 # Rack & Ruin — Session Handoff
 
-Last updated: 2026-06-10
+Last updated: 2026-06-11
 
 ## TL;DR
-The full rewrite is implemented and committed on the **`rewrite`** branch (HEAD
-`fc97a16`). `master` is the untouched original baseline (`b7e0e5c`). The game is a
-playable card-battler pool game: a pool-accurate table, real physics, standard
-rules for all four variants, a 30-card sabotage system, online multiplayer
-plumbing, and synthesized audio. **42 unit tests pass** (`npm test`).
+The full rewrite is implemented and committed on the **`rewrite`** branch.
+`master` is the untouched original baseline (`b7e0e5c`). The game is a playable
+card-battler pool game: a pool-accurate table, real physics, standard rules for
+all four variants, a 30-card sabotage system, online multiplayer plumbing, and
+synthesized audio. **42 unit tests pass** (`npm test`).
 
-The 2026-06-06 "card & table rework" backlog (11 items) is **done**, plus a large
-round of follow-up UX/feel work (this session). The remaining big gaps are the
-**live 2-client online test** (never run with two real browsers) and a **per-card
-playtest** of all 30 cards.
+2026-06-11 session: **full visual/audio modernization** (UI theme, menu, table /
+ball / cue rendering, particles, richer SFX) and **both big verification gaps
+closed** — the live 2-client online sync test PASSES (browser host + scripted
+joiner over the real server), and all card ids pass an automated in-browser
+playtest (resolve → effect applies → live shot → decay turn, no errors). What's
+left is human play for *feel/balance* tuning, not correctness.
 
 ## How to run
 - **Double-click `launch.bat`** → starts the Python server on :8000 and opens the
@@ -49,8 +51,55 @@ playtest** of all 30 cards.
 - `server/multiplayer_server.py` — `ThreadingHTTPServer`; rooms/tokens/long-poll;
   also serves the static files (`/` → `PLAY ME.html`).
 
-## What this session changed (2026-06-08 → 06-10)
-All on `rewrite`; each item verified in-browser and/or by unit test. Newest first:
+## What the 2026-06-11 session changed
+All on `rewrite`; verified in-browser (preview tools) + `npm test`. Three commits:
+
+**Visual overhaul part 1 — modern UI + table/ball/cue rendering** (`56557fe`)
+- `src/styles/main.css` rewritten around design tokens (`:root` vars): glass
+  panels, gradient menu hero ("RACK & RUIN / Sabotage Billiards"), modern
+  buttons/toasts/banners, card items as icon-chip rows with a type-coloured
+  strip (blue = ball card, amber = table card). Dead card-modal CSS removed.
+- `PLAY ME.html`: Outfit + Bebas Neue webfonts (graceful offline fallback),
+  menu hero block, title bar restyled; fixed the stray visible "Player 3 Name"
+  label; `updateHand()` in app.js now emits `.card-icon` markup.
+- `render/ball.js`: layered contact shadow, 3-stop body shading, felt bounce
+  light, fresnel rim, sheen + hard glint, crisper stripe band, number decal.
+- `render/table.js`: layered wood grain + brass inlay line, tournament felt
+  with diagonal weave + faint R&R watermark, rail inner shadow onto the cloth,
+  leather/brass pocket collars with inner-lip light, mother-of-pearl diamonds.
+- `render/aim.js`: guide line tints white→gold→red with power and glows; ghost
+  ball + contact crosshair; cut line gets an arrowhead; real tapered cue
+  (blue tip, ferrule, maple shaft, brass joint, wrapped rosewood butt, shadow).
+
+**Visual overhaul part 2 — particles + SFX** (`a05cf04`-ish, see log)
+- `physics.js` events now carry **relative {u,v} positions** (runtime only,
+  never serialized — online unaffected).
+- NEW `render/particles.js`: pocket-drop ring + burst in the ball's colour,
+  rail dust, hard-hit kiss flash, bear-trap sparks, chalk puff on the strike.
+  Self-clocking, 400-particle cap; finishes animating via the idle loop
+  (`particles.alive()` is part of the idle-loop condition). Cleared on new game.
+- `audio/sfx.js`: pocket = leather thunk + wooden return-rattle knocks;
+  scratch = hollow thud; rising C-major win fanfare; soft `click()` wired to
+  buttons / playable cards / spin dial via a delegated listener in app.js.
+
+**Online: live 2-client sync test — PASSES** (`tools/online-smoke.mjs`)
+- Scripted joiner speaks the exact client protocol (join-room, long-poll
+  /api/state, update-state). Verified against a real browser host: rack
+  snapshot sync, turn-lock to seat 1 after a host foul, ball-in-hand crossing,
+  card sabotage (crosswind) visible to the joiner, and the joiner's pushed
+  turn applied live by the host browser. Rerun: start server, host creates a
+  room in the browser, then `node tools/online-smoke.mjs <CODE>`, then host
+  racks + fouls + plays a card.
+- Confirmed known simplification: joiner name not synced (host names win).
+
+**Automated per-card playtest — all pass.** In-browser driver (preview_eval):
+for every id in CARD_POOL → fresh game → force card into hand → soft no-contact
+foul opens the card phase → play it resolving every pick type (ball/pocket/
+rail/place) → assert state changed → full shot with the effect live → another
+shot to run the decay path. 31/31 ok, zero console errors.
+
+## What the 2026-06-08 → 06-10 session changed
+Newest first:
 
 **Warp Rail — bend the rails to follow the hole** (`fc97a16`, user picked "Option A")
 - The boundary polygon's pocket vertex moves when a pocket is warped; the two
@@ -132,18 +181,18 @@ bear-trap `sprung` flag live within a shot / the settled snapshot already carrie
 unaffected — but it has STILL never been run with two real browsers (see gaps).
 
 ## NOT yet verified / known gaps (start here next session)
-1. **Live 2-client online test.** Plumbing done, server validated via live
-   requests, but never run with two browsers. Host `launch.bat` → Create Room →
-   Rack Up; second browser opens the invite link → Join. Verify turn-lock,
-   snapshot sync, card sabotage crossing over, ball-in-hand, win. Known
-   simplification: joiner name not synced (host's snapshot names win).
-2. **Per-card playtest of all 30.** The card *flow* and most effects were verified
-   (often headlessly via `window.RR.simBall`), but play a full game with each card
-   to tune feel/visuals/balance.
+1. **Human feel/balance pass.** Mechanics of every card are machine-verified
+   (see above), but nothing substitutes for playing full games: tune card
+   strength, zone sizes, SFX levels, particle amounts.
+2. **Two real browsers / two machines.** The 2-client test used a real browser
+   host + a protocol-exact scripted joiner; a second human browser via the
+   invite link should behave identically but hasn't been done end-to-end
+   (incl. win screen on both sides).
 3. **rAF throttling gotcha** — the live shot loop uses `requestAnimationFrame`,
    paused when the tab is unfocused. For headless/debug use the `window.RR` hooks.
 4. Minor polish: phone-aim is relative-to-drag (could aim from the cue);
-   doubles/cutthroat not selectable online (by design); some dead card-modal CSS.
+   doubles/cutthroat not selectable online (by design). Webfonts (Outfit/Bebas
+   Neue) load from Google Fonts — offline play falls back to system fonts.
 
 ## Dev hooks (browser console, `window.RR`)
 `state`, `render()`, `start()`, `shoot(power,angle)`,
