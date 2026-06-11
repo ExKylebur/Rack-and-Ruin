@@ -792,9 +792,11 @@ function updateHand() {
   p.hand.forEach((id, slot) => {
     const c = cardById(id); if (!c) return;
     const div = document.createElement('div');
-    div.className = 'card-item' + (playable ? ' playable' : '') + (exhausted ? ' disabled' : '');
+    div.className = 'card-item' + (c.type === 'table' ? ' type-table' : '')
+      + (playable ? ' playable' : '') + (exhausted ? ' disabled' : '');
     const isNew = phaseNewIds && phaseNewIds.has(id) && cardPhaseActive;
-    div.innerHTML = `<div class="card-name">${c.icon || ''} ${c.name}`
+    div.innerHTML = `<div class="card-icon">${c.icon || '🂠'}</div>`
+      + `<div class="card-name">${c.name}`
       + `${isNew ? '<span class="new-badge">NEW</span>' : ''}</div>`
       + `<div class="card-desc">${c.desc}</div>`;
     if (playable) {

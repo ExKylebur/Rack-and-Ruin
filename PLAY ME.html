@@ -4,14 +4,17 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Rack &amp; Ruin</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800&family=Bebas+Neue&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="src/styles/main.css">
 </head>
 <body>
 
 <!-- Title Bar -->
 <div id="titleBar">
-  <span class="game-title">Rack &amp; Ruin</span>
-  <span class="game-subtitle">Arcade Pool</span>
+  <span class="game-title">RACK <span class="amp">&amp;</span> RUIN</span>
+  <span class="game-subtitle">Sabotage Billiards</span>
   <span style="flex:1"></span>
   <button class="btn btn-secondary" id="newGameBtn" style="font-size:11px;padding:4px 12px;">New Game</button>
 </div>
@@ -74,7 +77,10 @@
 <!-- ===================== SETUP OVERLAY ===================== -->
 <div id="setupOverlay" class="overlay-base setup-overlay show">
   <div class="modal-box">
-    <h2>Rack &amp; Ruin</h2>
+    <div class="menu-hero">
+      <div class="menu-logo">RACK <span class="amp">&amp;</span> RUIN</div>
+      <div class="menu-tag">Sabotage Billiards</div>
+    </div>
     <div id="setupContent">
       <!-- Left col -->
       <div class="setup-section">
@@ -83,7 +89,7 @@
         <input type="text" id="p1name" value="Player 1" maxlength="20">
         <label>Player 2 Name</label>
         <input type="text" id="p2name" value="Player 2" maxlength="20">
-        <label id="p3nameLabel">Player 3 Name</label>
+        <label id="p3nameLabel" style="display:none">Player 3 Name</label>
         <input type="text" id="p3name" value="Player 3" maxlength="20" style="display:none">
         <label id="p4nameLabel" style="display:none">Player 4 Name</label>
         <input type="text" id="p4name" value="Player 4" maxlength="20" style="display:none">

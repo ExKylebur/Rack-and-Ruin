@@ -51,55 +51,145 @@ export function drawAim(ctx, state, angle, power) {
   const stopT = Math.min(ballT, railT);
   const end = { x: cue.x + dx * stopT, y: cue.y + dy * stopT };
 
+  // Guide colour shifts white -> gold -> red as power builds.
+  const p3 = Math.min(1, Math.max(0, power));
+  const lerp = (a, b, k) => Math.round(a + (b - a) * k);
+  const gc = p3 < 0.5
+    ? [lerp(255, 255, p3 * 2), lerp(255, 201, p3 * 2), lerp(255, 77, p3 * 2)]
+    : [255, lerp(201, 77, (p3 - 0.5) * 2), lerp(77, 107, (p3 - 0.5) * 2)];
+  const guide = (a) => `rgba(${gc[0]},${gc[1]},${gc[2]},${a})`;
+
   ctx.save();
-  // dotted sight line from the cue ball to the contact point
-  ctx.strokeStyle = `rgba(255,255,255,${0.38 + power * 0.32})`;
-  ctx.lineWidth = 1.2;
-  ctx.setLineDash([5, 7]);
+  // dotted sight line from the cue ball to the contact point, with a soft glow
+  ctx.shadowColor = guide(0.8);
+  ctx.shadowBlur = 5 + power * 8;
+  ctx.strokeStyle = guide(0.45 + power * 0.4);
+  ctx.lineWidth = 1.4;
+  ctx.setLineDash([6, 7]);
   ctx.beginPath();
   ctx.moveTo(cue.x, cue.y);
   ctx.lineTo(end.x, end.y);
   ctx.stroke();
   ctx.setLineDash([]);
+  ctx.shadowBlur = 0;
 
   // ghost cue ball at the tangent contact point + the object ball's cut line
   if (hit && target) {
     ctx.beginPath();
     ctx.arc(end.x, end.y, cue.r, 0, Math.PI * 2);
-    ctx.fillStyle = 'rgba(255,255,255,0.16)';
+    ctx.fillStyle = 'rgba(255,255,255,0.14)';
     ctx.fill();
-    ctx.strokeStyle = 'rgba(255,255,255,0.5)';
-    ctx.lineWidth = 1.2;
+    ctx.strokeStyle = guide(0.65);
+    ctx.lineWidth = 1.4;
+    ctx.setLineDash([3, 3]);
+    ctx.stroke();
+    ctx.setLineDash([]);
+    // contact crosshair
+    ctx.strokeStyle = 'rgba(255,255,255,0.55)';
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(end.x - cue.r * 0.3, end.y); ctx.lineTo(end.x + cue.r * 0.3, end.y);
+    ctx.moveTo(end.x, end.y - cue.r * 0.3); ctx.lineTo(end.x, end.y + cue.r * 0.3);
     ctx.stroke();
     // the struck ball is driven from the contact point through its own centre
     let ox = target.x - end.x, oy = target.y - end.y;
     const ol = Math.hypot(ox, oy) || 1; ox /= ol; oy /= ol;
-    ctx.strokeStyle = 'rgba(140,225,255,0.85)'; // cyan — high contrast on the felt
+    const cutLen = base * 4;
+    const cx2 = target.x + ox * cutLen, cy2 = target.y + oy * cutLen;
+    ctx.strokeStyle = 'rgba(140,225,255,0.9)'; // cyan — high contrast on the felt
+    ctx.lineWidth = 1.4;
     ctx.setLineDash([4, 5]);
     ctx.beginPath();
     ctx.moveTo(target.x, target.y);
-    ctx.lineTo(target.x + ox * base * 4, target.y + oy * base * 4);
+    ctx.lineTo(cx2, cy2);
     ctx.stroke();
     ctx.setLineDash([]);
+    // arrowhead on the cut line
+    ctx.fillStyle = 'rgba(140,225,255,0.9)';
+    ctx.beginPath();
+    ctx.moveTo(cx2 + ox * base * 0.7, cy2 + oy * base * 0.7);
+    ctx.lineTo(cx2 - oy * base * 0.32, cy2 + ox * base * 0.32);
+    ctx.lineTo(cx2 + oy * base * 0.32, cy2 - ox * base * 0.32);
+    ctx.closePath();
+    ctx.fill();
   }
 
-  // cue stick, butt behind the ball, pulled back with power
+  drawCueStick(ctx, cue, dx, dy, base, power);
+  ctx.restore();
+}
+
+// A proper two-piece cue: leather tip, white ferrule, maple shaft, brass joint
+// ring, dark rosewood butt with a linen wrap. Tapered (thin at the tip).
+function drawCueStick(ctx, cue, dx, dy, base, power) {
   const pull = cue.r * 0.5 + power * cue.r * 3;
   const tipX = cue.x - dx * (cue.r + 2 + pull);
   const tipY = cue.y - dy * (cue.r + 2 + pull);
-  const len2 = base * 22; // real cue proportion (~25 ball-diameters long)
-  const butX = tipX - dx * len2;
-  const butY = tipY - dy * len2;
-  const g = ctx.createLinearGradient(tipX, tipY, butX, butY);
-  g.addColorStop(0, 'rgba(235,210,145,0.94)');
-  g.addColorStop(0.3, 'rgba(188,138,68,0.88)');
-  g.addColorStop(1, 'rgba(80,45,15,0.72)');
-  ctx.strokeStyle = g;
-  ctx.lineWidth = Math.max(3, base * 0.45);
+  const len = base * 22; // real cue proportion (~25 ball-diameters long)
+  const px = -dy, py = dx; // perpendicular
+  const wTip = Math.max(2.2, base * 0.30) / 2;
+  const wButt = Math.max(5, base * 0.66) / 2;
+  const at = (t, w) => [tipX - dx * len * t + px * w, tipY - dy * len * t + py * w];
+
+  // soft drop shadow under the stick
+  ctx.save();
+  ctx.strokeStyle = 'rgba(0,0,0,0.25)';
+  ctx.lineWidth = wButt * 2.2;
   ctx.lineCap = 'round';
   ctx.beginPath();
-  ctx.moveTo(tipX, tipY);
-  ctx.lineTo(butX, butY);
+  ctx.moveTo(tipX + 2, tipY + 3);
+  ctx.lineTo(tipX - dx * len + 2, tipY - dy * len + 3);
   ctx.stroke();
   ctx.restore();
+
+  // tapered body
+  const body = ctx.createLinearGradient(tipX, tipY, tipX - dx * len, tipY - dy * len);
+  body.addColorStop(0.00, '#e9dcc0');   // ferrule-adjacent pale maple
+  body.addColorStop(0.45, '#caa468');   // maple shaft
+  body.addColorStop(0.52, '#8a5a28');
+  body.addColorStop(0.55, '#caa468');   // brass joint sits here (drawn below)
+  body.addColorStop(0.58, '#46260f');   // rosewood butt
+  body.addColorStop(0.82, '#2e1709');   // linen wrap zone
+  body.addColorStop(1.00, '#1a0d05');
+  ctx.beginPath();
+  const [ax, ay] = at(0, wTip); const [bx, by] = at(1, wButt);
+  const [cx3, cy3] = at(1, -wButt); const [dx3, dy3] = at(0, -wTip);
+  ctx.moveTo(ax, ay); ctx.lineTo(bx, by); ctx.lineTo(cx3, cy3); ctx.lineTo(dx3, dy3);
+  ctx.closePath();
+  ctx.fillStyle = body;
+  ctx.fill();
+
+  // running highlight along the top edge (cylindrical sheen)
+  ctx.strokeStyle = 'rgba(255,255,255,0.28)';
+  ctx.lineWidth = Math.max(1, wTip * 0.8);
+  ctx.beginPath();
+  const [h1x, h1y] = at(0.02, -wTip * 0.35); const [h2x, h2y] = at(0.95, -wButt * 0.35);
+  ctx.moveTo(h1x, h1y); ctx.lineTo(h2x, h2y);
+  ctx.stroke();
+
+  // brass joint ring + butt cap
+  const band = (t, w, style, lw) => {
+    ctx.strokeStyle = style; ctx.lineWidth = lw;
+    const [j1x, j1y] = at(t, w); const [j2x, j2y] = at(t, -w);
+    ctx.beginPath(); ctx.moveTo(j1x, j1y); ctx.lineTo(j2x, j2y); ctx.stroke();
+  };
+  const jw = wTip + (wButt - wTip) * 0.55;
+  band(0.55, jw, 'rgba(255,214,140,0.9)', 2);
+  band(1.0, wButt, 'rgba(8,4,2,0.95)', 3);
+
+  // white ferrule then the blue leather tip at the very front
+  const ferruleLen = base * 0.5;
+  ctx.strokeStyle = '#f2efe6';
+  ctx.lineWidth = wTip * 2;
+  ctx.lineCap = 'butt';
+  ctx.beginPath();
+  ctx.moveTo(tipX, tipY);
+  ctx.lineTo(tipX - dx * ferruleLen, tipY - dy * ferruleLen);
+  ctx.stroke();
+  ctx.strokeStyle = '#3f74c2';
+  ctx.lineWidth = wTip * 2;
+  ctx.lineCap = 'round';
+  ctx.beginPath();
+  ctx.moveTo(tipX + dx * base * 0.12, tipY + dy * base * 0.12);
+  ctx.lineTo(tipX, tipY);
+  ctx.stroke();
 }

@@ -1,6 +1,10 @@
 // render/ball.js — draws one ball FROM state. Radius = base ballR * ball.size,
 // so Big Ball (size 2) / Small Ball (size 0.5) render correctly at any
 // resolution. Position comes from the ball's relative {u,v}.
+//
+// Shading model (cheap but reads as a glossy sphere): layered soft contact
+// shadow, 3-stop body gradient lit from the upper-left, a green bounce light
+// from the felt at the base, a fresnel rim, then a broad sheen + hard glint.
 
 import { toPx, unitsFor } from '../geometry.js';
 
@@ -40,10 +44,14 @@ export function drawBall(ctx, ball, state) {
   const speed = Math.hypot(ball.vx, ball.vy);
   const axis = (speed > 0.04 ? Math.atan2(ball.vy, ball.vx) : 0) + (ball.roll || 0);
 
-  // Grounded shadow.
+  // Grounded contact shadow: a tight dark core inside a soft wide penumbra.
   ctx.beginPath();
-  ctx.ellipse(drawX + 2, drawY + r * 0.9, r * 0.72, r * 0.2, 0, 0, Math.PI * 2);
-  ctx.fillStyle = 'rgba(0,0,0,0.28)';
+  ctx.ellipse(drawX + r * 0.16, drawY + r * 0.88, r * 1.0, r * 0.3, 0, 0, Math.PI * 2);
+  ctx.fillStyle = 'rgba(0,0,0,0.16)';
+  ctx.fill();
+  ctx.beginPath();
+  ctx.ellipse(drawX + r * 0.1, drawY + r * 0.88, r * 0.7, r * 0.2, 0, 0, Math.PI * 2);
+  ctx.fillStyle = 'rgba(0,0,0,0.3)';
   ctx.fill();
 
   ctx.save();
@@ -54,61 +62,91 @@ export function drawBall(ctx, ball, state) {
 
   const color = ball.c || '#cccccc';
   if (shownNum === 0) {
-    const g = ctx.createRadialGradient(-r * 0.3, -r * 0.35, r * 0.1, 0, 0, r);
-    g.addColorStop(0, '#ffffff'); g.addColorStop(0.5, '#f0f0ef'); g.addColorStop(1, '#b7b7b7');
+    const g = ctx.createRadialGradient(-r * 0.32, -r * 0.36, r * 0.08, 0, 0, r * 1.05);
+    g.addColorStop(0, '#ffffff'); g.addColorStop(0.45, '#f3f2ee'); g.addColorStop(0.8, '#cfccc4'); g.addColorStop(1, '#a8a49a');
     ctx.fillStyle = g;
     ctx.fillRect(-r, -r, r * 2, r * 2);
   } else if (shownStripe) {
-    const shell = ctx.createRadialGradient(-r * 0.28, -r * 0.3, r * 0.08, 0, 0, r);
-    shell.addColorStop(0, '#fcfcfb'); shell.addColorStop(0.62, '#edece7'); shell.addColorStop(1, '#cfcdc8');
+    const shell = ctx.createRadialGradient(-r * 0.3, -r * 0.34, r * 0.08, 0, 0, r * 1.05);
+    shell.addColorStop(0, '#ffffff'); shell.addColorStop(0.55, '#efeee8'); shell.addColorStop(0.85, '#d4d1c8'); shell.addColorStop(1, '#b3afa4');
     ctx.fillStyle = shell;
     ctx.fillRect(-r, -r, r * 2, r * 2);
     ctx.save();
     ctx.rotate(axis);
     const sg = ctx.createLinearGradient(-r, 0, r, 0);
-    sg.addColorStop(0, shiftHex(color, -20)); sg.addColorStop(0.45, color); sg.addColorStop(1, shiftHex(color, -36));
+    sg.addColorStop(0, shiftHex(color, -26)); sg.addColorStop(0.42, shiftHex(color, 12)); sg.addColorStop(1, shiftHex(color, -44));
     ctx.fillStyle = sg;
     ctx.fillRect(-r, -r * 0.54, r * 2, r * 1.08);
+    // crisp band edges so the stripe doesn't bleed into the shell
+    ctx.fillStyle = 'rgba(0,0,0,0.18)';
+    ctx.fillRect(-r, -r * 0.56, r * 2, r * 0.05);
+    ctx.fillRect(-r, r * 0.51, r * 2, r * 0.05);
     ctx.restore();
   } else {
-    const sg = ctx.createRadialGradient(-r * 0.3, -r * 0.35, r * 0.08, 0, 0, r);
-    sg.addColorStop(0, shiftHex(color, 58)); sg.addColorStop(0.38, color); sg.addColorStop(1, shiftHex(color, -58));
+    const sg = ctx.createRadialGradient(-r * 0.32, -r * 0.36, r * 0.06, 0, 0, r * 1.05);
+    sg.addColorStop(0, shiftHex(color, 72)); sg.addColorStop(0.36, shiftHex(color, 14)); sg.addColorStop(0.78, shiftHex(color, -34)); sg.addColorStop(1, shiftHex(color, -76));
     ctx.fillStyle = sg;
     ctx.fillRect(-r, -r, r * 2, r * 2);
   }
 
-  // rim shading for spherical depth
-  const rim = ctx.createRadialGradient(0, 0, r * 0.2, 0, 0, r);
-  rim.addColorStop(0, 'rgba(0,0,0,0)'); rim.addColorStop(0.72, 'rgba(0,0,0,0.08)'); rim.addColorStop(1, 'rgba(0,0,0,0.24)');
+  // bounce light from the felt at the base of the sphere
+  const felt = ctx.createRadialGradient(0, r * 0.95, r * 0.1, 0, r * 0.95, r * 1.05);
+  felt.addColorStop(0, 'rgba(80,200,120,0.20)');
+  felt.addColorStop(1, 'rgba(80,200,120,0)');
+  ctx.fillStyle = felt;
+  ctx.fillRect(-r, -r, r * 2, r * 2);
+
+  // fresnel rim for spherical depth
+  const rim = ctx.createRadialGradient(0, 0, r * 0.45, 0, 0, r);
+  rim.addColorStop(0, 'rgba(0,0,0,0)'); rim.addColorStop(0.7, 'rgba(0,0,0,0.07)'); rim.addColorStop(1, 'rgba(0,0,0,0.3)');
   ctx.fillStyle = rim;
   ctx.fillRect(-r, -r, r * 2, r * 2);
 
   // number decal
   if (shownNum > 0) {
-    const decal = ctx.createRadialGradient(-r * 0.05, -r * 0.05, r * 0.02, 0, 0, r * 0.46);
-    decal.addColorStop(0, 'rgba(255,255,255,0.98)'); decal.addColorStop(1, 'rgba(230,229,221,0.9)');
+    const decal = ctx.createRadialGradient(-r * 0.06, -r * 0.08, r * 0.02, 0, 0, r * 0.48);
+    decal.addColorStop(0, 'rgba(255,255,255,0.99)'); decal.addColorStop(0.8, 'rgba(246,245,238,0.96)'); decal.addColorStop(1, 'rgba(222,220,210,0.92)');
     ctx.fillStyle = decal;
     ctx.beginPath();
-    ctx.arc(0, 0, r * 0.44, 0, Math.PI * 2);
+    ctx.arc(0, 0, r * 0.45, 0, Math.PI * 2);
     ctx.fill();
-    ctx.fillStyle = '#0d0d0d';
-    ctx.font = `bold ${(shownNum > 9 ? 0.5 : 0.62) * r}px sans-serif`;
+    ctx.strokeStyle = 'rgba(0,0,0,0.10)';
+    ctx.lineWidth = Math.max(0.6, r * 0.04);
+    ctx.stroke();
+    ctx.fillStyle = '#15130f';
+    ctx.font = `800 ${(shownNum > 9 ? 0.5 : 0.6) * r}px Outfit, 'Segoe UI', sans-serif`;
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
-    ctx.fillText(String(shownNum), 0, 0);
+    ctx.fillText(String(shownNum), 0, r * 0.03);
   }
 
-  // specular highlight
+  // broad glossy sheen + hard glint (the "window light")
+  ctx.save();
+  ctx.rotate(-0.55);
+  const sheen = ctx.createRadialGradient(-r * 0.32, -r * 0.3, 0, -r * 0.32, -r * 0.3, r * 0.62);
+  sheen.addColorStop(0, 'rgba(255,255,255,0.5)');
+  sheen.addColorStop(0.6, 'rgba(255,255,255,0.12)');
+  sheen.addColorStop(1, 'rgba(255,255,255,0)');
+  ctx.fillStyle = sheen;
   ctx.beginPath();
-  ctx.arc(-r * 0.3, -r * 0.34, r * 0.2, 0, Math.PI * 2);
-  ctx.fillStyle = 'rgba(255,255,255,0.64)';
+  ctx.ellipse(-r * 0.3, -r * 0.3, r * 0.55, r * 0.34, 0, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.restore();
+  ctx.beginPath();
+  ctx.arc(-r * 0.3, -r * 0.36, r * 0.11, 0, Math.PI * 2);
+  ctx.fillStyle = 'rgba(255,255,255,0.92)';
+  ctx.fill();
+  // faint secondary glint opposite (table-light bounce)
+  ctx.beginPath();
+  ctx.arc(r * 0.34, r * 0.3, r * 0.16, 0, Math.PI * 2);
+  ctx.fillStyle = 'rgba(255,255,255,0.10)';
   ctx.fill();
   ctx.restore();
 
-  // outer rim line
+  // soft dark outline grounds the ball against the bright felt
   ctx.beginPath();
   ctx.arc(drawX, drawY, r, 0, Math.PI * 2);
-  ctx.strokeStyle = 'rgba(255,255,255,0.22)';
-  ctx.lineWidth = 0.9;
+  ctx.strokeStyle = 'rgba(0,0,0,0.35)';
+  ctx.lineWidth = Math.max(0.8, r * 0.05);
   ctx.stroke();
 }
