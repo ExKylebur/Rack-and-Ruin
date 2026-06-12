@@ -1,6 +1,6 @@
 # Rack & Ruin — Session Handoff
 
-Last updated: 2026-06-11
+Last updated: 2026-06-12
 
 ## TL;DR
 The full rewrite is implemented and committed on the **`rewrite`** branch.
@@ -50,6 +50,40 @@ left is human play for *feel/balance* tuning, not correctness.
 - `app.js` — entry: setup, input, shot loop, card phase, turn flow, online glue.
 - `server/multiplayer_server.py` — `ThreadingHTTPServer`; rooms/tokens/long-poll;
   also serves the static files (`/` → `PLAY ME.html`).
+
+## What the 2026-06-12 session changed (user playtest feedback round)
+One commit; **47 unit tests** + the automated 31-card in-browser playtest pass.
+
+**Gameplay fixes**
+- **CCD anti-tunneling:** `physics.step` slices each frame so no ball moves
+  more than ~0.45·ballR per slice (`substep()`, cap 12). Fixes extreme thin
+  cuts where the cue tunneled past the advertised contact. Tests in
+  `test/jump.test.js`.
+- **Jump Shot** (counter to Warp Rail trapping balls): toggle button under the
+  spin dial (`#jumpBtn`, `toggleJump`). `applyShot(..., jump=true)` sets
+  `cue.air = power * PA.w * JUMP_RANGE_FRAC(0.55)`; airborne balls skip
+  friction/zones/rails/collisions (`airStep` in physics.js), land via distance
+  countdown — off the bed = **scratch**, over a pocket = drop. Aim preview =
+  hop-arc dots + landing ring (red X = will scratch). Airborne render: ball
+  lifts/grows, shadow stays grounded (`ball.js` lift/airT). `land` event ->
+  thud SFX + dust. `air/airTotal` are runtime-only (NOT serialized; snapshots
+  are settled). RR.simShot takes a 4th `jump` arg.
+- **Oil Cue friction +33%** (0.9985 -> 0.998/frame) — stops drifting forever.
+- **Open Pocket gating:** never dealt unless a pocket is blocked
+  (`blockedPocketExists()` filters the draw pool); dead in hand shows disabled.
+
+**Visual round 2** ("cards were dull / effects identical")
+- Hand = 2-col mini game cards (`updateHand` markup + main.css): per-card hue
+  (`cardHue(id)` -> `--card-hue`), art zone w/ watermark icon, type chip, foil
+  shine, pulsing playable glow, NEW ribbon.
+- `spawnCardFlourishFor` (app.js) + `particles.spawnCardFlourish`: shockwave
+  rings, hue sparks, rising card icon at the resolved effect's location.
+- `effects.js` amped (glow/shadowBlur + animation on everything): ice
+  twinkles, mud oozes/pops, bouncer neon rings, portal halos + outer dashed
+  ring, crosswind comet streaks w/ arrowheads, magnet rings collapse into
+  pockets, neon bounce-house rail, cracked dead rail, blocked pocket = red
+  glow + marching hazard ticks, shrunk pocket pulses, badges on glow chips.
+  Idle loop now also animates while pocketState has blocked/shrunk entries.
 
 ## What the 2026-06-11 session changed
 All on `rewrite`; verified in-browser (preview tools) + `npm test`. Three commits:
