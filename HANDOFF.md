@@ -51,8 +51,27 @@ left is human play for *feel/balance* tuning, not correctness.
 - `server/multiplayer_server.py` — `ThreadingHTTPServer`; rooms/tokens/long-poll;
   also serves the static files (`/` → `PLAY ME.html`).
 
-## What the 2026-06-12 session changed (user playtest feedback round)
-One commit; **47 unit tests** + the automated 31-card in-browser playtest pass.
+## What the 2026-06-12 session changed (user playtest feedback rounds)
+**51 unit tests** + the automated 31-card in-browser playtest pass.
+
+**Feedback round 2 (warp rail + power bar)**
+- **Warp blocking guard:** `geometry.warpBlocksPocket` builds the would-be bent
+  boundary and returns the index of any pocket whose mouth a cushion face
+  would cross (threshold = mouth radius; default table min is ~1.1r) or whose
+  mouth the dropped pocket would crowd. `resolvePick` rejects with a toast;
+  the ghost preview paints the bend red + pulses 🚫 on the threatened pocket.
+- **Rail effects follow bends:** `drawRailEffects` now passes
+  `state.movedPockets` to `cushions()` so dead-rail wood / bounce-house rubber
+  hug the warped crest (they drew on the old straight rail line).
+- **Oscillating power bar:** `beginCharge` ping-pongs power through the
+  allowed window at constant %/sec (1.4 s full sweep). Cool Hands → 0–25,
+  Roid Rage → starts instantly at 75, sweeps 75–100. The lo/hi window derives
+  from activeEffects, so future cards can reshape it the same way. applyShot
+  reordered (cool, then roid) so stacked clamps match the bar.
+- Gotcha rediscovered: preview screenshots/evals that await rAF hang when the
+  preview window is occluded — restart the preview server for a fresh window.
+
+**Feedback round 1**
 
 **Gameplay fixes**
 - **CCD anti-tunneling:** `physics.step` slices each frame so no ball moves
