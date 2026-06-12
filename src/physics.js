@@ -34,6 +34,7 @@ export function makeSim(state) {
       num: b.num, x: p.x, y: p.y, vx: b.vx || 0, vy: b.vy || 0,
       r: BASE_BALL_R * (b.size || 1), size: b.size || 1,
       pocketed: b.pocketed, roll: b.roll || 0,
+      air: 0, airTotal: 0,
       heavyweight: !!b.heavyweight, lightweight: !!b.lightweight,
     };
   });
@@ -42,7 +43,10 @@ export function makeSim(state) {
 export function pocketsFor(state) { return pocketLayout(CANON, state.movedPockets); }
 export function freshTurn() { return { firstHit: null, pocketed: [], cueScratched: false }; }
 
-export function applyShot(sim, power, angle, effects = {}, spin = { x: 0, y: 0 }) {
+// Jump shot: flight distance at full power, as a fraction of the play width.
+export const JUMP_RANGE_FRAC = 0.55;
+
+export function applyShot(sim, power, angle, effects = {}, spin = { x: 0, y: 0 }, jump = false) {
   const cue = sim.find((b) => b.num === 0 && !b.pocketed);
   if (!cue) return;
   let p = power;
@@ -55,6 +59,14 @@ export function applyShot(sim, power, angle, effects = {}, spin = { x: 0, y: 0 }
   // and rail rebound). Scaled by power so a soft tap carries little spin.
   cue.spin = { x: (spin.x || 0) * p, y: (spin.y || 0) * p };
   cue._spinUsed = false;
+  // Jump shot: the cue goes airborne for a distance ∝ power (see airStep). No
+  // English while in the air; it can clear balls, rails — and the table edge.
+  if (jump) {
+    cue.air = p * PA.w * JUMP_RANGE_FRAC;
+    cue.airTotal = cue.air;
+    cue.spin = { x: 0, y: 0 };
+    cue._spinUsed = true;
+  }
   // Drunk only sways the AIM (see app.js render); it must NOT perturb the struck
   // ball, so there is no velocity jitter here once the shot is committed.
 }
@@ -227,14 +239,14 @@ function frictionFor(b, effects) {
   let f = FRICTION;
   if (effects.icePatch) { const c = zpx(effects.icePatch); if ((b.x - c.x) ** 2 + (b.y - c.y) ** 2 < Z.ice * Z.ice) f = 0.9995; }
   if (effects.mudPatch) { const c = zpx(effects.mudPatch); if ((b.x - c.x) ** 2 + (b.y - c.y) ** 2 < Z.mud * Z.mud) f = 0.92; }
-  if (b.num === 0 && effects.oilCue) f = Math.max(f, 0.9985);
+  // Oil: slicker than felt but not endless — per-frame loss 0.002 (was 0.0015;
+  // +33% friction after playtest feedback that the cue drifted far too long).
+  if (b.num === 0 && effects.oilCue) f = Math.max(f, 0.998);
   return f;
 }
 
 export function step(sim, pockets, dt, turn, env = {}) {
   const effects = env.effects || {};
-  const pocketState = env.pocketState || null;
-  const ev = env.events || null; // optional sink for {ball|rail|pocket} sound events
   // Warp Rail bends the cushions, so recompute faces in CANON when a pocket is
   // warped (memoised on the env for the shot); otherwise use the cached straight ones.
   let faces = FACES;
@@ -242,8 +254,26 @@ export function step(sim, pockets, dt, turn, env = {}) {
   if (mp && Object.values(mp).some((m) => m && m.warp)) {
     faces = env._faces || (env._faces = cushions(CANON, mp).list.flatMap((c) => c.faces));
   }
+  // CCD: never let a ball move more than ~half a radius per integration slice.
+  // At full power a ball covers ~38px/frame while an extreme thin-cut's contact
+  // window is only ~13px wide — a single Euler step tunnels straight past it
+  // (the "advertised cut never connects" bug). Slicing the frame fixes ball-ball
+  // AND ball-cushion tunneling; the slice count is capped so a frame stays cheap.
+  let vmax = 0;
+  for (const b of sim) if (!b.pocketed) vmax = Math.max(vmax, Math.abs(b.vx), Math.abs(b.vy));
+  const slices = Math.max(1, Math.min(12, Math.ceil((vmax * dt) / (BASE_BALL_R * 0.45))));
+  const h = dt / slices;
+  let moving = false;
+  for (let k = 0; k < slices; k++) moving = substep(sim, pockets, h, turn, env, effects, faces);
+  return moving;
+}
+
+function substep(sim, pockets, dt, turn, env, effects, faces) {
+  const pocketState = env.pocketState || null;
+  const ev = env.events || null; // optional sink for {ball|rail|pocket} sound events
   for (const b of sim) {
     if (b.pocketed) continue;
+    if (b.air > 0) { airStep(b, dt, pockets, turn, pocketState, ev); continue; }
     applyForces(b, dt, effects, pockets, ev);
     const fr = Math.pow(frictionFor(b, effects), dt);
     b.vx *= fr; b.vy *= fr;
@@ -259,10 +289,35 @@ export function step(sim, pockets, dt, turn, env = {}) {
   for (let i = 0; i < sim.length; i++) {
     for (let j = i + 1; j < sim.length; j++) {
       if (sim[i].pocketed || sim[j].pocketed) continue;
+      if (sim[i].air > 0 || sim[j].air > 0) continue; // airborne balls fly over
       collide(sim[i], sim[j], turn, effects, ev);
     }
   }
-  return sim.some((b) => !b.pocketed && (Math.abs(b.vx) > MIN_SPEED || Math.abs(b.vy) > MIN_SPEED));
+  return sim.some((b) => !b.pocketed
+    && (b.air > 0 || Math.abs(b.vx) > MIN_SPEED || Math.abs(b.vy) > MIN_SPEED));
+}
+
+// A jump-shot ball in flight: no felt friction, no zones/traps/portals, sails
+// over cushions and other balls. When the flight distance runs out it lands —
+// off the bed (onto / past a rail) is a table exit = scratch; landing over a
+// pocket mouth drops in; otherwise it touches down and rolls on normally.
+function airStep(b, dt, pockets, turn, pocketState, ev) {
+  const spd = Math.hypot(b.vx, b.vy);
+  b.x += b.vx * dt; b.y += b.vy * dt;
+  b.air -= spd * dt;
+  if (b.air > 0) return;
+  b.air = 0;
+  const offBed = b.x < PA.left + b.r || b.x > PA.right - b.r
+    || b.y < PA.top + b.r || b.y > PA.bottom - b.r;
+  if (offBed) {
+    b.pocketed = true; b.vx = 0; b.vy = 0;
+    turn.pocketed.push(b.num);
+    if (b.num === 0) turn.cueScratched = true;
+    if (ev) ev.push({ type: 'pocket', kind: b.num === 0 ? 'scratch' : 'legal', num: b.num, ...toRel({ x: b.x, y: b.y }, CANON) });
+    return;
+  }
+  pocketCheck(b, pockets, turn, pocketState, ev);
+  if (!b.pocketed && ev) ev.push({ type: 'land', impact: Math.min(spd / 10, 1), ...toRel({ x: b.x, y: b.y }, CANON) });
 }
 
 export function runToRest(sim, pockets, turn, maxFrames = 6000, env = {}) {
@@ -278,6 +333,7 @@ export function syncToState(state, sim) {
     const rel = toRel({ x: s.x, y: s.y }, CANON);
     b.u = rel.u; b.v = rel.v;
     b.vx = s.vx; b.vy = s.vy; b.roll = s.roll;
+    b.air = s.air || 0; b.airTotal = s.airTotal || 0; // runtime-only (jump arc render)
   });
 }
 

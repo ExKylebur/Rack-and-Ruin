@@ -48,7 +48,13 @@ export function drawEffects(ctx, state) {
       ctx.fillStyle = g; ctx.fill();
       ctx.beginPath(); ctx.arc(p.x, p.y, inner, 0, Math.PI * 2);
       ctx.fillStyle = '#040404'; ctx.fill();
-      ctx.strokeStyle = 'rgba(255,140,140,0.55)'; ctx.lineWidth = 1.5; ctx.stroke();
+      // pulsing constriction ring
+      const sq = (Math.sin(t / 300) + 1) / 2;
+      ctx.strokeStyle = `rgba(255,${130 + sq * 60},${130 + sq * 60},${0.5 + sq * 0.4})`;
+      ctx.lineWidth = 1.5 + sq;
+      ctx.shadowColor = 'rgba(255,120,120,0.8)'; ctx.shadowBlur = 8 + sq * 6;
+      ctx.stroke();
+      ctx.shadowBlur = 0;
     }
 
     if (st.blocked) {
@@ -61,13 +67,17 @@ export function drawEffects(ctx, state) {
       const b = { x: bx + tx * half, y: by + ty * half };
       ctx.save();
       ctx.lineCap = 'round';
+      // red danger glow under the barrier
+      ctx.shadowColor = 'rgba(255,50,50,0.85)'; ctx.shadowBlur = 12 + Math.sin(t / 260) * 5;
       ctx.strokeStyle = 'rgba(18,9,3,0.95)'; ctx.lineWidth = p.r * 0.62;
       ctx.beginPath(); ctx.moveTo(a.x, a.y); ctx.lineTo(b.x, b.y); ctx.stroke();
+      ctx.shadowBlur = 0;
       ctx.strokeStyle = 'rgba(214,42,42,0.96)'; ctx.lineWidth = p.r * 0.42;
       ctx.beginPath(); ctx.moveTo(a.x, a.y); ctx.lineTo(b.x, b.y); ctx.stroke();
-      // hazard ticks across the bar
-      ctx.strokeStyle = 'rgba(255,222,120,0.9)'; ctx.lineWidth = 2;
-      for (let s = -0.6; s <= 0.61; s += 0.4) {
+      // marching hazard ticks across the bar
+      ctx.strokeStyle = 'rgba(255,222,120,0.92)'; ctx.lineWidth = 2;
+      const march = (t / 700) % 0.4;
+      for (let s = -0.8 + march; s <= 0.81; s += 0.4) {
         const cx = bx + tx * half * s, cy = by + ty * half * s;
         ctx.beginPath();
         ctx.moveTo(cx - ix * p.r * 0.22, cy - iy * p.r * 0.22);
@@ -170,8 +180,28 @@ function drawIce(ctx, p, rad, t) {
   ctx.ellipse(p.x - rad * 0.2, p.y - rad * 0.28, rad * 0.55, rad * 0.22, -0.6, 0, Math.PI * 2);
   ctx.fillStyle = '#ffffff'; ctx.fill();
   ctx.restore();
+  // frosty halo + rim
+  ctx.save();
   ctx.beginPath(); ctx.arc(p.x, p.y, rad, 0, Math.PI * 2);
-  ctx.strokeStyle = 'rgba(210,240,255,0.9)'; ctx.lineWidth = 2; ctx.stroke();
+  ctx.strokeStyle = 'rgba(210,240,255,0.95)'; ctx.lineWidth = 2.2;
+  ctx.shadowColor = 'rgba(150,220,255,0.9)'; ctx.shadowBlur = 14;
+  ctx.stroke();
+  ctx.restore();
+  // twinkling star sparkles
+  for (let i = 0; i < 4; i++) {
+    const tw = Math.max(0, Math.sin(t / 240 + i * 1.9));
+    if (tw < 0.25) continue;
+    const a = rnd(i + 11) * Math.PI * 2, d = rnd(i + 17) * rad * 0.7;
+    const sx = p.x + Math.cos(a) * d, sy = p.y + Math.sin(a) * d, s = (1.5 + rnd(i) * 2.5) * tw;
+    ctx.save();
+    ctx.strokeStyle = `rgba(255,255,255,${0.85 * tw})`;
+    ctx.lineWidth = 1.1;
+    ctx.beginPath();
+    ctx.moveTo(sx - s, sy); ctx.lineTo(sx + s, sy);
+    ctx.moveTo(sx, sy - s); ctx.lineTo(sx, sy + s);
+    ctx.stroke();
+    ctx.restore();
+  }
   glyph(ctx, '❄️', p.x, p.y, rad * 0.5, 0.9);
 }
 
@@ -191,18 +221,35 @@ function drawMud(ctx, p, rad, t) {
     ctx.beginPath(); ctx.arc(lx, ly, lr, 0, Math.PI * 2);
     ctx.fillStyle = i % 2 ? 'rgba(58,38,18,0.8)' : 'rgba(110,76,40,0.6)'; ctx.fill();
   }
-  // slow rising bubbles
-  for (let i = 0; i < 4; i++) {
-    const ph = (t / 1400 + i * 0.27) % 1;
-    const bx = p.x + (rnd(i + 1) - 0.5) * rad * 1.2;
+  // slow rising bubbles — some pop with a tiny splat ring
+  for (let i = 0; i < 7; i++) {
+    const ph = (t / 1400 + i * 0.19) % 1;
+    const bx = p.x + (rnd(i + 1) - 0.5) * rad * 1.3;
     const by = p.y + rad * 0.6 - ph * rad * 1.2;
-    const br = rad * 0.08 * (1 - ph * 0.4);
-    ctx.beginPath(); ctx.arc(bx, by, br, 0, Math.PI * 2);
-    ctx.fillStyle = `rgba(150,110,60,${0.5 * (1 - ph)})`; ctx.fill();
+    const br = rad * 0.09 * (1 - ph * 0.4);
+    if (ph > 0.92) { // pop!
+      ctx.beginPath(); ctx.arc(bx, by, br * 2.4, 0, Math.PI * 2);
+      ctx.strokeStyle = `rgba(150,110,60,${(1 - ph) * 5})`; ctx.lineWidth = 1.2; ctx.stroke();
+    } else {
+      ctx.beginPath(); ctx.arc(bx, by, br, 0, Math.PI * 2);
+      ctx.fillStyle = `rgba(150,110,60,${0.55 * (1 - ph)})`; ctx.fill();
+      ctx.beginPath(); ctx.arc(bx - br * 0.3, by - br * 0.3, br * 0.3, 0, Math.PI * 2);
+      ctx.fillStyle = `rgba(220,180,120,${0.4 * (1 - ph)})`; ctx.fill();
+    }
   }
   ctx.restore();
-  ctx.beginPath(); ctx.arc(p.x, p.y, rad, 0, Math.PI * 2);
-  ctx.strokeStyle = 'rgba(40,26,12,0.9)'; ctx.lineWidth = 2; ctx.stroke();
+  // oozing edge: the outline slowly undulates
+  ctx.save();
+  ctx.beginPath();
+  for (let a = 0; a <= Math.PI * 2 + 0.01; a += Math.PI / 24) {
+    const rr = rad * (1 + Math.sin(a * 5 + t / 700) * 0.025);
+    const x = p.x + Math.cos(a) * rr, y = p.y + Math.sin(a) * rr;
+    a === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
+  }
+  ctx.strokeStyle = 'rgba(40,26,12,0.95)'; ctx.lineWidth = 2.5;
+  ctx.shadowColor = 'rgba(30,18,8,0.8)'; ctx.shadowBlur = 8;
+  ctx.stroke();
+  ctx.restore();
   glyph(ctx, '🟤', p.x, p.y, rad * 0.5, 0.7);
 }
 
@@ -211,11 +258,21 @@ function drawBouncer(ctx, p, rad, t) {
   const pulse = 1 + Math.sin(t / 220) * 0.05;
   const R = rad * pulse;
   ctx.save();
+  // neon impact ring radiating outwards
+  const ring = (t / 900) % 1;
+  ctx.beginPath(); ctx.arc(p.x, p.y, R * (1.1 + ring * 1.3), 0, Math.PI * 2);
+  ctx.strokeStyle = `rgba(255,110,90,${(1 - ring) * 0.55})`;
+  ctx.lineWidth = 2;
+  ctx.stroke();
   ctx.beginPath(); ctx.arc(p.x, p.y, R + 2, 0, Math.PI * 2);
   ctx.fillStyle = 'rgba(60,10,6,0.9)'; ctx.fill();             // dark rubber base
   const g = ctx.createRadialGradient(p.x - R * 0.35, p.y - R * 0.4, R * 0.1, p.x, p.y, R);
   g.addColorStop(0, '#ff8a78'); g.addColorStop(0.6, '#e0452f'); g.addColorStop(1, '#a31f12');
-  ctx.beginPath(); ctx.arc(p.x, p.y, R, 0, Math.PI * 2); ctx.fillStyle = g; ctx.fill();
+  ctx.beginPath(); ctx.arc(p.x, p.y, R, 0, Math.PI * 2);
+  ctx.fillStyle = g;
+  ctx.shadowColor = 'rgba(255,90,60,0.8)'; ctx.shadowBlur = 14;
+  ctx.fill();
+  ctx.shadowBlur = 0;
   ctx.beginPath(); ctx.ellipse(p.x - R * 0.28, p.y - R * 0.34, R * 0.34, R * 0.18, -0.6, 0, Math.PI * 2);
   ctx.fillStyle = 'rgba(255,255,255,0.55)'; ctx.fill();        // glossy highlight
   ctx.restore();
@@ -277,16 +334,23 @@ function drawBearTrap(ctx, p, rad, t, sprung) {
 // ---- Portal: a swirling vortex -------------------------------------------------
 function drawPortal(ctx, p, rad, t, i) {
   const col = i % 2 ? [255, 90, 150] : [120, 130, 255];
+  const rgb = `${col[0]},${col[1]},${col[2]}`;
   const spin = t / 360 * (i % 2 ? -1 : 1);
   ctx.save();
   ctx.translate(p.x, p.y);
+  // event-horizon glow bleeding onto the felt
+  const halo = ctx.createRadialGradient(0, 0, rad * 0.6, 0, 0, rad * 1.9);
+  halo.addColorStop(0, `rgba(${rgb},0.30)`);
+  halo.addColorStop(1, `rgba(${rgb},0)`);
+  ctx.beginPath(); ctx.arc(0, 0, rad * 1.9, 0, Math.PI * 2); ctx.fillStyle = halo; ctx.fill();
   const core = ctx.createRadialGradient(0, 0, 1, 0, 0, rad);
-  core.addColorStop(0, `rgba(${col[0]},${col[1]},${col[2]},0.95)`);
-  core.addColorStop(0.5, `rgba(${col[0]},${col[1]},${col[2]},0.4)`);
-  core.addColorStop(1, 'rgba(10,5,25,0.85)');
+  core.addColorStop(0, `rgba(255,255,255,0.95)`);
+  core.addColorStop(0.25, `rgba(${rgb},0.95)`);
+  core.addColorStop(0.6, `rgba(${rgb},0.4)`);
+  core.addColorStop(1, 'rgba(10,5,25,0.9)');
   ctx.beginPath(); ctx.arc(0, 0, rad, 0, Math.PI * 2); ctx.fillStyle = core; ctx.fill();
   // spiral arms
-  ctx.strokeStyle = `rgba(255,255,255,0.8)`; ctx.lineWidth = 1.6;
+  ctx.strokeStyle = `rgba(255,255,255,0.85)`; ctx.lineWidth = 1.7;
   for (let a = 0; a < 2; a++) {
     ctx.beginPath();
     for (let s = 0; s <= 1; s += 0.08) {
@@ -297,8 +361,18 @@ function drawPortal(ctx, p, rad, t, i) {
     }
     ctx.stroke();
   }
+  // bright rim + counter-rotating outer dashed ring
   ctx.beginPath(); ctx.arc(0, 0, rad, 0, Math.PI * 2);
-  ctx.strokeStyle = `rgba(${col[0]},${col[1]},${col[2]},0.9)`; ctx.lineWidth = 2; ctx.stroke();
+  ctx.strokeStyle = `rgba(${rgb},0.95)`; ctx.lineWidth = 2.2;
+  ctx.shadowColor = `rgba(${rgb},0.9)`; ctx.shadowBlur = 16;
+  ctx.stroke();
+  ctx.shadowBlur = 0;
+  ctx.rotate(-spin * 0.7);
+  ctx.beginPath(); ctx.arc(0, 0, rad * 1.35, 0, Math.PI * 2);
+  ctx.setLineDash([rad * 0.45, rad * 0.4]);
+  ctx.strokeStyle = `rgba(${rgb},0.55)`; ctx.lineWidth = 1.6;
+  ctx.stroke();
+  ctx.setLineDash([]);
   ctx.restore();
 }
 
@@ -308,32 +382,55 @@ function drawCrosswind(ctx, state, strength, t) {
   const dir = strength > 0 ? 1 : -1;
   ctx.save();
   ctx.beginPath(); ctx.rect(pa.left, pa.top, pa.w, pa.h); ctx.clip();
-  ctx.strokeStyle = 'rgba(205,232,255,0.34)'; ctx.lineCap = 'round';
-  const rows = 7, span = Math.abs(strength) * 60 + 50;
+  ctx.lineCap = 'round';
+  const rows = 9, span = Math.abs(strength) * 90 + 80;
   for (let i = 0; i < rows; i++) {
-    const y = pa.top + pa.h * ((i + 0.5) / rows);
-    const phase = ((t / 1600) + i * 0.16) % 1;
+    const y = pa.top + pa.h * ((i + 0.5) / rows) + Math.sin(t / 900 + i * 2.1) * 6;
+    const phase = ((t / 1300) + i * 0.13) % 1;
     const x = pa.left - span + phase * (pa.w + span * 2);
     const xx = dir > 0 ? x : pa.right - (x - pa.left);
-    ctx.lineWidth = 1 + (i % 2);
-    ctx.globalAlpha = Math.sin(phase * Math.PI) * 0.8;
-    ctx.beginPath(); ctx.moveTo(xx, y); ctx.lineTo(xx + dir * span * 0.5, y); ctx.stroke();
+    const len = span * (0.5 + (i % 3) * 0.18);
+    const a = Math.sin(phase * Math.PI) * 0.9;
+    // comet streak: bright head fading down the tail
+    const g = ctx.createLinearGradient(xx, y, xx + dir * len, y);
+    g.addColorStop(0, `rgba(205,232,255,0)`);
+    g.addColorStop(0.8, `rgba(215,238,255,${a * 0.5})`);
+    g.addColorStop(1, `rgba(255,255,255,${a * 0.9})`);
+    ctx.strokeStyle = g;
+    ctx.lineWidth = 1.2 + (i % 2);
+    ctx.beginPath(); ctx.moveTo(xx, y); ctx.lineTo(xx + dir * len, y); ctx.stroke();
+    // arrowhead on the streak's leading tip
+    const hx = xx + dir * len, hs = 3.5 + (i % 2) * 1.5;
+    ctx.fillStyle = `rgba(255,255,255,${a * 0.85})`;
+    ctx.beginPath();
+    ctx.moveTo(hx + dir * hs, y);
+    ctx.lineTo(hx - dir * hs * 0.6, y - hs * 0.65);
+    ctx.lineTo(hx - dir * hs * 0.6, y + hs * 0.65);
+    ctx.closePath(); ctx.fill();
   }
   ctx.restore();
 }
 
 // ---- Magnet: pulsing field arcs around every pocket ----------------------------
 function drawMagnetField(ctx, state, t) {
-  const pulse = (Math.sin(t / 320) + 1) / 2;
   ctx.save();
-  ctx.lineWidth = 1.4;
   for (const p of pocketLayout(state.dims, state.movedPockets)) {
-    for (let k = 1; k <= 3; k++) {
-      const rr = p.r * (1.4 + k * 0.7 + pulse * 0.3);
+    // rings collapsing INTO the pocket — reads as suction, not radiation
+    for (let k = 0; k < 3; k++) {
+      const ph = 1 - ((t / 1100 + k / 3) % 1); // 1 -> 0, shrinking
+      const rr = p.r * (1.2 + ph * 2.6);
       ctx.beginPath(); ctx.arc(p.x, p.y, rr, 0, Math.PI * 2);
-      ctx.strokeStyle = `rgba(120,200,255,${0.22 - k * 0.05})`;
+      ctx.strokeStyle = `rgba(120,200,255,${(1 - ph) * 0.4})`;
+      ctx.lineWidth = 1.4 + (1 - ph) * 1.2;
       ctx.stroke();
     }
+    // glowing core ring on the pocket mouth
+    ctx.beginPath(); ctx.arc(p.x, p.y, p.r * 1.15, 0, Math.PI * 2);
+    ctx.strokeStyle = 'rgba(140,215,255,0.75)';
+    ctx.lineWidth = 2;
+    ctx.shadowColor = 'rgba(120,200,255,0.9)'; ctx.shadowBlur = 12;
+    ctx.stroke();
+    ctx.shadowBlur = 0;
   }
   ctx.restore();
 }
@@ -374,8 +471,10 @@ function drawRubberRail(ctx, span, t) {
     ctx.strokeStyle = style; ctx.lineWidth = w; ctx.stroke();
   };
   draw(1.5, 'rgba(20,10,40,0.6)', 7);            // shadow
+  ctx.shadowColor = 'rgba(255,95,166,0.95)'; ctx.shadowBlur = 12; // neon glow
   draw(1.5, '#ff5fa6', 6);                        // rubber band
-  draw(0.2, 'rgba(255,210,235,0.85)', 1.6);       // highlight
+  ctx.shadowBlur = 0;
+  draw(0.2, 'rgba(255,210,235,0.9)', 1.6);        // highlight
   ctx.restore();
 }
 
@@ -398,6 +497,19 @@ function drawRottedRail(ctx, span) {
     ctx.beginPath(); ctx.arc(c.x + n.nx, c.y + n.ny, 2 + rnd(i + 7) * 1.5, 0, Math.PI * 2);
     ctx.fillStyle = i % 2 ? 'rgba(70,90,40,0.7)' : 'rgba(20,16,8,0.8)'; ctx.fill();
   }
+  // splintering cracks reaching out of the dead wood
+  ctx.strokeStyle = 'rgba(15,10,4,0.85)';
+  ctx.lineWidth = 1.2;
+  for (let i = 0; i < 4; i++) {
+    const a = pts[i % (pts.length - 1)], b = pts[(i % (pts.length - 1)) + 1];
+    const c = seg(a, b, rnd(i + 23));
+    const jag = 4 + rnd(i + 31) * 5;
+    ctx.beginPath();
+    ctx.moveTo(c.x, c.y);
+    ctx.lineTo(c.x + n.nx * jag + (rnd(i) - 0.5) * 6, c.y + n.ny * jag + (rnd(i + 3) - 0.5) * 6);
+    ctx.lineTo(c.x + n.nx * jag * 1.9 + (rnd(i + 5) - 0.5) * 8, c.y + n.ny * jag * 1.9 + (rnd(i + 9) - 0.5) * 8);
+    ctx.stroke();
+  }
   ctx.restore();
 }
 
@@ -407,6 +519,26 @@ function glyph(ctx, emoji, x, y, size, alpha) {
   ctx.font = `${size}px sans-serif`;
   ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
   ctx.fillText(emoji, x, y);
+  ctx.restore();
+}
+
+// A glyph on a small dark glow-chip so status badges pop against any felt art.
+function badge(ctx, emoji, x, y, size, alpha) {
+  ctx.save();
+  ctx.globalAlpha = alpha == null ? 1 : alpha;
+  ctx.beginPath();
+  ctx.arc(x, y, size * 0.72, 0, Math.PI * 2);
+  ctx.fillStyle = 'rgba(8,12,22,0.72)';
+  ctx.shadowColor = 'rgba(255,225,140,0.55)';
+  ctx.shadowBlur = 7;
+  ctx.fill();
+  ctx.shadowBlur = 0;
+  ctx.strokeStyle = 'rgba(255,255,255,0.3)';
+  ctx.lineWidth = 1;
+  ctx.stroke();
+  ctx.font = `${size}px sans-serif`;
+  ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+  ctx.fillText(emoji, x, y + size * 0.04);
   ctx.restore();
 }
 
@@ -423,7 +555,7 @@ export function drawEffectBadges(ctx, state) {
     if (!b.heavyweight && !b.lightweight) continue;
     let p = toPx({ u: b.u, v: b.v }, state.dims);
     if (e.mirror && b.num !== 0) p = { x: state.dims.w - p.x, y: p.y };
-    glyph(ctx, b.heavyweight ? '🏋️' : '🪶', p.x, p.y + r * 1.35, r * 0.95, 0.95);
+    badge(ctx, b.heavyweight ? '🏋️' : '🪶', p.x, p.y + r * 1.55, r * 0.95, 0.95);
   }
 
   const cue = state.balls.find((b) => b.num === 0 && !b.pocketed);
@@ -440,8 +572,8 @@ export function drawEffectBadges(ctx, state) {
   if (e.sticky) badges.push('🍯');
   if (e.drunk) badges.push('🍺');
   badges.forEach((g, i) => {
-    const x = p.x + (i - (badges.length - 1) / 2) * cr * 0.95;
-    glyph(ctx, g, x, p.y - cr * 1.7, cr * 0.85, 0.96);
+    const x = p.x + (i - (badges.length - 1) / 2) * cr * 1.25;
+    badge(ctx, g, x, p.y - cr * 1.85, cr * 0.85, 0.96);
   });
 }
 

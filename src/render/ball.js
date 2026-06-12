@@ -44,18 +44,27 @@ export function drawBall(ctx, ball, state) {
   const speed = Math.hypot(ball.vx, ball.vy);
   const axis = (speed > 0.04 ? Math.atan2(ball.vy, ball.vx) : 0) + (ball.roll || 0);
 
+  // Jump shot: while airborne the ball lifts, grows, and its shadow stays on
+  // the felt — a parabolic arc over the flight (air counts down to 0).
+  const airT = (ball.airTotal > 0 && ball.air > 0) ? 1 - ball.air / ball.airTotal : 0;
+  const lift = airT > 0 ? Math.sin(Math.PI * airT) : 0;
+  const rDraw = r * (1 + 0.42 * lift);
+  const yDraw = drawY - lift * r * 1.9;
+
   // Grounded contact shadow: a tight dark core inside a soft wide penumbra.
+  // While airborne it shrinks, fades and trails behind the lifted ball.
   ctx.beginPath();
-  ctx.ellipse(drawX + r * 0.16, drawY + r * 0.88, r * 1.0, r * 0.3, 0, 0, Math.PI * 2);
-  ctx.fillStyle = 'rgba(0,0,0,0.16)';
+  ctx.ellipse(drawX + r * 0.16, drawY + r * 0.88, r * (1 - 0.3 * lift), r * 0.3 * (1 - 0.3 * lift), 0, 0, Math.PI * 2);
+  ctx.fillStyle = `rgba(0,0,0,${0.16 * (1 - 0.55 * lift)})`;
   ctx.fill();
   ctx.beginPath();
-  ctx.ellipse(drawX + r * 0.1, drawY + r * 0.88, r * 0.7, r * 0.2, 0, 0, Math.PI * 2);
-  ctx.fillStyle = 'rgba(0,0,0,0.3)';
+  ctx.ellipse(drawX + r * 0.1, drawY + r * 0.88, r * 0.7 * (1 - 0.3 * lift), r * 0.2 * (1 - 0.3 * lift), 0, 0, Math.PI * 2);
+  ctx.fillStyle = `rgba(0,0,0,${0.3 * (1 - 0.55 * lift)})`;
   ctx.fill();
 
   ctx.save();
-  ctx.translate(drawX, drawY);
+  ctx.translate(drawX, yDraw);
+  if (lift > 0) ctx.scale(rDraw / r, rDraw / r); // grow the whole sphere in flight
   ctx.beginPath();
   ctx.arc(0, 0, r, 0, Math.PI * 2);
   ctx.clip();
@@ -145,7 +154,7 @@ export function drawBall(ctx, ball, state) {
 
   // soft dark outline grounds the ball against the bright felt
   ctx.beginPath();
-  ctx.arc(drawX, drawY, r, 0, Math.PI * 2);
+  ctx.arc(drawX, yDraw, rDraw, 0, Math.PI * 2);
   ctx.strokeStyle = 'rgba(0,0,0,0.35)';
   ctx.lineWidth = Math.max(0.8, r * 0.05);
   ctx.stroke();

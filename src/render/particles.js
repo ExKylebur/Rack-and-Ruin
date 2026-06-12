@@ -83,6 +83,31 @@ export function spawnChalkPuff(x, y, angle, power) {
   }
 }
 
+// Dramatic flourish when a card resolves: double shockwave ring, a fountain of
+// hue-tinted sparks, and the card's icon rising and swelling out of the spot.
+export function spawnCardFlourish(x, y, icon, hue) {
+  const h = hue == null ? 48 : hue;
+  push({ kind: 'ring', x, y, r: 6, vr: 0.16, life: 520, age: 0, color: `hsl(${h} 90% 70%)`, lw: 3 });
+  push({ kind: 'ring', x, y, r: 2, vr: 0.10, life: 640, age: 0, color: 'rgba(255,255,255,0.9)', lw: 1.6 });
+  push({ kind: 'flash', x, y, r: 26, life: 200, age: 0, color: `hsl(${h} 95% 75%)` });
+  for (let i = 0; i < 22; i++) {
+    const a = (i / 22) * Math.PI * 2 + Math.random() * 0.4;
+    const sp = 0.06 + Math.random() * 0.18;
+    push({
+      kind: Math.random() < 0.4 ? 'spark' : 'dot', x, y,
+      vx: Math.cos(a) * sp, vy: Math.sin(a) * sp - 0.03,
+      drag: 0.94, grav: 0.00014,
+      size: 1.2 + Math.random() * 2.2,
+      life: 420 + Math.random() * 320, age: 0,
+      color: Math.random() < 0.6 ? `hsl(${h} 95% ${60 + Math.random() * 25}%)` : '#ffffff',
+    });
+  }
+  if (icon) {
+    push({ kind: 'glyph', x, y, vx: 0, vy: -0.035, drag: 1, grav: 0,
+      size: 22, life: 760, age: 0, char: icon });
+  }
+}
+
 export function alive() { return parts.length > 0; }
 export function clear() { parts.length = 0; lastT = 0; }
 
@@ -107,6 +132,13 @@ export function updateAndDraw(ctx, dims) {
       ctx.globalAlpha = k * 0.8;
       ctx.lineWidth = p.lw * k + 0.4;
       ctx.stroke();
+    } else if (p.kind === 'glyph') {
+      p.y += p.vy * dt * (scale / 1000);
+      ctx.globalAlpha = Math.min(1, k * 1.6);
+      ctx.font = `${p.size * (1 + (1 - k) * 0.9)}px sans-serif`;
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText(p.char, p.x, p.y);
     } else if (p.kind === 'flash') {
       ctx.beginPath();
       ctx.arc(p.x, p.y, p.r * (1 + (1 - k) * 0.8), 0, Math.PI * 2);

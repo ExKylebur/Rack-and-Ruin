@@ -5,6 +5,7 @@
 // ghost never clips into the target as you slide the aim around it.
 
 import { playArea, toPx, unitsFor } from '../geometry.js';
+import { JUMP_RANGE_FRAC } from '../physics.js';
 
 function cuePx(state) {
   const cue = state.balls.find((b) => b.num === 0 && !b.pocketed);
@@ -14,13 +15,19 @@ function cuePx(state) {
   return { x: p.x, y: p.y, r };
 }
 
-export function drawAim(ctx, state, angle, power) {
+export function drawAim(ctx, state, angle, power, jump = false) {
   const cue = cuePx(state);
   if (!cue) return;
   const pa = playArea(state.dims);
   const base = unitsFor(state.dims).ballR;
 
   const dx = Math.cos(angle), dy = Math.sin(angle);
+
+  // Jump shot armed: show the hop arc + landing spot instead of the roll guide.
+  if (jump) {
+    drawJumpPreview(ctx, state, cue, dx, dy, power, pa, base);
+    return;
+  }
 
   // Distance along the aim ray to the first rail (cue edge inset).
   let railT = state.dims.w * 3;
@@ -114,6 +121,52 @@ export function drawAim(ctx, state, angle, power) {
     ctx.fill();
   }
 
+  drawCueStick(ctx, cue, dx, dy, base, power);
+  ctx.restore();
+}
+
+// Jump-shot preview: a dotted hop arc whose dots rise and fall, the landing
+// ring at distance ∝ power (idle shows the max range), and a red X when the
+// landing would leave the bed (= scratch). Flies over balls, so no ghost/cut.
+function drawJumpPreview(ctx, state, cue, dx, dy, power, pa, base) {
+  const p = power > 0.02 ? power : 1; // before charging, preview full range
+  const dist = pa.w * JUMP_RANGE_FRAC * p;
+  const lx = cue.x + dx * dist, ly = cue.y + dy * dist;
+  const off = lx < pa.left + cue.r || lx > pa.right - cue.r
+    || ly < pa.top + cue.r || ly > pa.bottom - cue.r;
+  const col = off ? '255,95,95' : '255,214,120';
+
+  ctx.save();
+  // rising/falling dotted arc
+  const n = 15;
+  for (let i = 1; i <= n; i++) {
+    const t = i / n;
+    const hgt = Math.sin(Math.PI * t);
+    ctx.beginPath();
+    ctx.arc(cue.x + dx * dist * t, cue.y + dy * dist * t - hgt * cue.r * 1.7,
+      1.2 + hgt * 2.6, 0, Math.PI * 2);
+    ctx.fillStyle = `rgba(${col},${0.35 + hgt * 0.5})`;
+    ctx.fill();
+  }
+  // landing ring
+  ctx.beginPath();
+  ctx.arc(lx, ly, cue.r, 0, Math.PI * 2);
+  ctx.setLineDash([4, 4]);
+  ctx.lineWidth = 1.6;
+  ctx.strokeStyle = `rgba(${col},0.95)`;
+  ctx.shadowColor = `rgba(${col},0.8)`;
+  ctx.shadowBlur = 8;
+  ctx.stroke();
+  ctx.setLineDash([]);
+  ctx.shadowBlur = 0;
+  if (off) { // off the table — that's a scratch
+    ctx.strokeStyle = 'rgba(255,95,95,0.95)';
+    ctx.lineWidth = 2.2;
+    ctx.beginPath();
+    ctx.moveTo(lx - cue.r * 0.55, ly - cue.r * 0.55); ctx.lineTo(lx + cue.r * 0.55, ly + cue.r * 0.55);
+    ctx.moveTo(lx + cue.r * 0.55, ly - cue.r * 0.55); ctx.lineTo(lx - cue.r * 0.55, ly + cue.r * 0.55);
+    ctx.stroke();
+  }
   drawCueStick(ctx, cue, dx, dy, base, power);
   ctx.restore();
 }

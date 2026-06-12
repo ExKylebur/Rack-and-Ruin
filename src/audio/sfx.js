@@ -200,6 +200,23 @@
       });
     }
 
+    // Springy launch chirp for a jump shot…
+    jump(power) {
+      if (!this.canPlay('jump', 80)) return;
+      const p = clamp(power == null ? 0.5 : power, 0, 1);
+      this.noiseBurst({ duration: 0.04, level: 0.12 + p * 0.1, hp: 500, lp: 5200 });
+      this.tone({ type: 'sine', freq: 230, freqTo: 540 + p * 320, duration: 0.16, level: 0.14 });
+      this.tone({ type: 'triangle', freq: 150, freqTo: 90, duration: 0.08, level: 0.1 });
+    }
+
+    // …and the felt thud when it touches back down.
+    land(impact) {
+      if (!this.canPlay('land', 60)) return;
+      const q = clamp(impact == null ? 0.5 : impact, 0, 1);
+      this.noiseBurst({ duration: 0.05, level: 0.12 + q * 0.12, hp: 100, lp: 1100 });
+      this.tone({ type: 'triangle', freq: 170 + q * 60, freqTo: 70, duration: 0.12, level: 0.1 + q * 0.08 });
+    }
+
     // Soft UI tick for buttons / card plays.
     click() {
       if (!this.canPlay('click', 50)) return;

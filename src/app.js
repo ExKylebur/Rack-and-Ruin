@@ -34,6 +34,7 @@ let onlineMode = 'local';
 let ballsMoving = false;
 let aimAngle = 0;
 let spin = { x: 0, y: 0 }; // cue English: x = side (-left..+right), y = top(+)/back(-)
+let jumpArmed = false;     // next shot is a jump shot (cue flies over balls/rails)
 let shotPower = 0;
 let charging = false;
 let chargeStart = 0;
@@ -86,7 +87,7 @@ function render() {
     && !cardPhaseActive && !pendingPick && !!cuePx();
   const sway = (canAim && e.drunk) ? Math.sin(performance.now() / 280) * 0.087 : 0; // Drunk: wobbly aim, ±5°
   if (canAim && !e.shortsighted) {
-    drawAim(ctx, state, aimAngle + sway, charging ? shotPower : 0);
+    drawAim(ctx, state, aimAngle + sway, charging ? shotPower : 0, jumpArmed);
   }
   // Fog of War masks everything but a sight beam down the (swayed) aim line.
   if (canAim && e.fogOfWar) drawFog(ctx, state, aimAngle + sway);
@@ -106,6 +107,7 @@ function startIdleLoop() {
     const e = state.activeEffects || {};
     const animatedFx = (e.portals && e.portals.length) || e.crosswind || e.magnet || e.turbo
       || e.bouncer || e.icePatch || e.mudPatch || (e.bounceHouseRail && e.bounceHouseRail.length)
+      || Object.values(state.pocketState || {}).some((ps) => ps && (ps.blocked || ps.shrunk))
       || performance.now() < trapAnimUntil;
     const animated = pendingPick || placingCue || (e.drunk && !ballsMoving) || animatedFx
       || particles.alive();
@@ -191,6 +193,7 @@ function startGame() {
   placingCue = false; updateBallInHandUI();
   ballsMoving = false;
   spin = { x: 0, y: 0 }; updateSpinDial();
+  jumpArmed = false; updateJumpBtn();
   cardPhaseActive = false; pendingPick = null; phaseNewIds = null; cardPhasePlaysLeft = 0; cardQueue = [];
   particles.clear();
   updateCardPhaseUI();
@@ -287,6 +290,9 @@ function playEvents(evts) {
     } else if (e.type === 'beartrap') {
       trap = true;
       if (p) particles.spawnSparks(p.x, p.y);
+    } else if (e.type === 'land') {
+      sfx('land', e.impact);
+      if (p) particles.spawnRailDust(p.x, p.y, Math.min(1, (e.impact || 0.5) * 1.4));
     }
   }
   if (ball > 0.05) sfx('ballHit', ball);
@@ -296,7 +302,9 @@ function playEvents(evts) {
 
 function shoot(power, angle) {
   sim = makeSim(state);
-  applyShot(sim, power, angle, state.activeEffects, spin);
+  applyShot(sim, power, angle, state.activeEffects, spin, jumpArmed);
+  if (jumpArmed) sfx('jump', power);
+  jumpArmed = false; updateJumpBtn();      // jump is consumed by this shot
   spin = { x: 0, y: 0 }; updateSpinDial(); // spin is consumed by this shot
   state.turn = freshTurn();
   state.turn.isBreak = !state.broken;
@@ -451,6 +459,11 @@ function placeCueAt(px, py) {
 // ===================== CARD PHASE =====================
 const shuffle = (a) => { for (let i = a.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [a[i], a[j]] = [a[j], a[i]]; } return a; };
 
+// Open Pocket is useless unless something is blocked — never deal it otherwise.
+function blockedPocketExists() {
+  return Object.values(state.pocketState || {}).some((ps) => ps && ps.blocked);
+}
+
 function drawCards(player) {
   if (player.hand.length >= MAX_HAND) return [];
   const slots = MAX_HAND - player.hand.length;
@@ -466,12 +479,13 @@ function drawCards(player) {
     used.add(id);
     return id;
   };
-  const ball = CARD_POOL.filter((c) => c.type === 'ball');
-  const table = CARD_POOL.filter((c) => c.type === 'table');
+  const available = CARD_POOL.filter((c) => c.id !== 'open_pocket' || blockedPocketExists());
+  const ball = available.filter((c) => c.type === 'ball');
+  const table = available.filter((c) => c.type === 'table');
   // Lead with a ball card + a table card for variety, then fill from the whole pool.
   if (toDraw >= 1) { const id = pickUnique(ball); if (id) drawn.push(id); }
   if (toDraw >= 2) { const id = pickUnique(table); if (id) drawn.push(id); }
-  while (drawn.length < toDraw) { const id = pickUnique(CARD_POOL); if (!id) break; drawn.push(id); }
+  while (drawn.length < toDraw) { const id = pickUnique(available); if (!id) break; drawn.push(id); }
   shuffle(drawn);
   for (const id of drawn) if (player.hand.length < MAX_HAND) player.hand.push(id);
   return drawn;
@@ -539,6 +553,7 @@ function playHandCard(slot) {
   const player = state.players[state.cardPhasePlayer];
   const id = player.hand[slot];
   if (!id) return;
+  if (id === 'open_pocket' && !blockedPocketExists()) { showToast('No blocked pocket to open'); return; }
   player.hand.splice(slot, 1);
   cardPhasePlaysLeft--;
   cardQueue = [{ id, opts: {}, steps: [...(cardById(id).interactions || [])] }];
@@ -576,10 +591,31 @@ function processCardQueue() {
   } else {
     applyCard(state, item.id, item.opts);
     sfx('cardPlayed', item.id);
+    spawnCardFlourishFor(item);
     cardQueue.shift();
     updateEffects(); render();
     processCardQueue();
   }
+}
+
+// Visual fanfare where the card's effect lands (its placed spot, picked ball /
+// pocket, or the table centre for global cards).
+function spawnCardFlourishFor(item) {
+  const c = cardById(item.id);
+  const o = item.opts || {};
+  let rel = o.pos || o.to || (o.positions && o.positions[0]) || null;
+  if (!rel && o.ball != null) {
+    const b = state.balls.find((x) => x.num === o.ball && !x.pocketed);
+    if (b) rel = { u: b.u, v: b.v };
+  }
+  if (!rel && o.pocket != null) {
+    const pk = pocketLayout(state.dims, state.movedPockets)[o.pocket];
+    if (pk) { const r2 = toRel({ x: pk.x, y: pk.y }, state.dims); rel = r2; }
+  }
+  const p = rel ? toPx(rel, state.dims)
+    : { x: state.dims.w / 2, y: state.dims.h / 2 };
+  particles.spawnCardFlourish(p.x, p.y, c && c.icon, cardHue(item.id));
+  startIdleLoop(); // make sure the burst animates even between turns
 }
 
 // Resolve one table pick during the card phase. Returns true if the click hit a
@@ -756,6 +792,18 @@ function updateSpinDial() {
   dot.style.top = `${dial.clientHeight / 2 - spin.y * R}px`;
   dial.classList.toggle('spin-active', !!(spin.x || spin.y));
 }
+// ---- Jump shot toggle ----
+function toggleJump() {
+  if (!state.started || ballsMoving) return;
+  jumpArmed = !jumpArmed;
+  updateJumpBtn();
+  render();
+}
+function updateJumpBtn() {
+  const b = document.getElementById('jumpBtn');
+  if (b) b.classList.toggle('active', jumpArmed);
+}
+
 function wireSpinDial() {
   const dial = document.getElementById('spinDial');
   if (!dial) return;
@@ -799,30 +847,39 @@ function updatePlayers() {
   });
 }
 
+// Stable per-card hue so every card has its own colour identity.
+export function cardHue(id) {
+  let h = 0;
+  for (const ch of String(id)) h = (h * 31 + ch.charCodeAt(0)) >>> 0;
+  return h % 360;
+}
+
 function updateHand() {
   const el = document.getElementById('handArea');
   // During the card phase show the shooter's hand (still the current player);
   // it's interactive then. Otherwise it's a passive display of the turn-holder.
   const pi = state.cardPhasePlayer != null ? state.cardPhasePlayer : state.currentPlayer;
   const p = state.players[pi];
-  if (!p || !p.hand.length) { el.innerHTML = '<span style="font-size:11px;color:#555">No cards</span>'; return; }
+  if (!p || !p.hand.length) { el.innerHTML = '<span class="hand-empty">No cards</span>'; return; }
   const playable = cardPhaseActive && !pendingPick && cardPhasePlaysLeft > 0;
   const exhausted = cardPhaseActive && !pendingPick && cardPhasePlaysLeft <= 0;
   el.innerHTML = '';
   p.hand.forEach((id, slot) => {
     const c = cardById(id); if (!c) return;
+    const dead = id === 'open_pocket' && !blockedPocketExists(); // nothing to open
     const div = document.createElement('div');
-    div.className = 'card-item' + (c.type === 'table' ? ' type-table' : '')
-      + (playable ? ' playable' : '') + (exhausted ? ' disabled' : '');
+    div.className = 'card-item' + (c.type === 'table' ? ' type-table' : ' type-ball')
+      + (playable && !dead ? ' playable' : '') + ((exhausted || dead) ? ' disabled' : '');
+    div.style.setProperty('--card-hue', cardHue(id));
     const isNew = phaseNewIds && phaseNewIds.has(id) && cardPhaseActive;
-    div.innerHTML = `<div class="card-icon">${c.icon || '🂠'}</div>`
-      + `<div class="card-name">${c.name}`
+    div.innerHTML = `<div class="card-art"><span class="card-wm">${c.icon || '🂠'}</span>`
+      + `<span class="card-big-icon">${c.icon || '🂠'}</span>`
+      + `<span class="card-type">${c.type === 'table' ? 'TABLE' : 'BALL'}</span>`
       + `${isNew ? '<span class="new-badge">NEW</span>' : ''}</div>`
+      + `<div class="card-name">${c.name}</div>`
       + `<div class="card-desc">${c.desc}</div>`;
-    if (playable) {
-      div.title = 'Click to play';
-      div.addEventListener('click', () => playHandCard(slot));
-    }
+    div.title = dead ? 'No blocked pocket to open' : (playable ? `Play ${c.name}` : c.desc);
+    if (playable && !dead) div.addEventListener('click', () => playHandCard(slot));
     el.appendChild(div);
   });
 }
@@ -974,7 +1031,7 @@ function boot() {
   Object.assign(window, {
     onRackUp, onNewGame, setControlMode, setOnlineMode,
     onCreateRoom, onJoinRoom, copyInvite,
-    onCardPhaseDone, onCardPhaseSkip,
+    onCardPhaseDone, onCardPhaseSkip, toggleJump,
     onConfirmYes: () => {}, onConfirmNo: () => {},
   });
 
@@ -985,9 +1042,9 @@ function boot() {
     shoot: (power, angle) => { aimAngle = angle; shoot(power, angle); },
     isMoving: () => ballsMoving,
     // headless shot: simulate to rest synchronously, then resolve (rAF-independent)
-    simShot: (power, angle, sp) => {
+    simShot: (power, angle, sp, jump) => {
       sim = makeSim(state);
-      applyShot(sim, power, angle, state.activeEffects, sp || spin);
+      applyShot(sim, power, angle, state.activeEffects, sp || spin, !!jump);
       state.turn = freshTurn(); state.turn.isBreak = !state.broken;
       const env = { effects: state.activeEffects, pocketState: state.pocketState, movedPockets: state.movedPockets };
       let f = 0; while (step(sim, pocketsFor(state), 1, state.turn, env) && f < 6000) f++;
