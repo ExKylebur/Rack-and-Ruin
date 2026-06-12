@@ -1,7 +1,7 @@
-// Jump shot + CCD anti-tunneling + oil friction regression tests.
+// Jump shot + CCD anti-tunneling + oil friction + warp-blocking regression tests.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { fitCanvas, playArea } from '../src/geometry.js';
+import { fitCanvas, playArea, warpBlocksPocket } from '../src/geometry.js';
 import {
   makeSim, freshTurn, applyShot, runToRest, BASE_BALL_R, MAX_SHOT_SPEED,
 } from '../src/physics.js';
@@ -70,4 +70,27 @@ test('oil cue: slicker than felt but stops well before the frame cap', () => {
   const plain = runToRest(sim2, [], freshTurn(), 6000);
   assert.ok(oiled > plain * 2, `oil drifts much longer than felt (${oiled} vs ${plain} frames)`);
   assert.ok(oiled < 3600, `oil shot settles reasonably fast (took ${oiled} frames; pre-tune ~4500)`);
+});
+
+// ---- Warp Rail: a bend must not seal another pocket ----
+test('warpBlocksPocket allows a modest warp near its own corner', () => {
+  assert.equal(warpBlocksPocket(CANON, {}, 5, { u: 0.82, v: 0.78 }), -1);
+});
+
+test('warpBlocksPocket flags a drop crowding another pocket (screenshot bug)', () => {
+  // BR dragged to just under the TR pocket — the mouths crowd and the bent
+  // rails wall TR off (the exact configuration from the user's screenshot).
+  const blocked = warpBlocksPocket(CANON, {}, 5, { u: 0.97, v: 0.12 });
+  assert.equal(blocked, 2, `expected TR (2), got ${blocked}`);
+});
+
+test('warpBlocksPocket flags a bent rail lying across a distant mouth', () => {
+  // BR dragged to just left of the top-middle pocket: the long TR->drop rail
+  // runs right under the TM mouth and seals it.
+  const blocked = warpBlocksPocket(CANON, {}, 5, { u: 0.42, v: 0.02 });
+  assert.equal(blocked, 1, `expected TM (1), got ${blocked}`);
+});
+
+test('warpBlocksPocket leaves a bend through open felt alone', () => {
+  assert.equal(warpBlocksPocket(CANON, {}, 5, { u: 0.55, v: 0.5 }), -1);
 });

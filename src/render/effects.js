@@ -2,7 +2,7 @@
 // frame. Zone positions are relative {u,v} -> px via toPx; radii use the same
 // ball-radius factors as physics so visuals match the simulation.
 
-import { playArea, pocketLayout, toPx, unitsFor, cushions } from '../geometry.js';
+import { playArea, pocketLayout, toPx, toRel, unitsFor, cushions, warpBlocksPocket } from '../geometry.js';
 
 const F = { ice: 5.3, mud: 4.8, bouncer: 0.95, trap: 1.2, portal: 1.4 };
 
@@ -440,7 +440,9 @@ function drawRailEffects(ctx, state, e, t) {
   const bh = e.bounceHouseRail || [];
   const dr = e.deadRail || [];
   if (!bh.length && !dr.length) return;
-  const list = cushions(state.dims).list;
+  // Use the SAME boundary physics bounces off — incl. Warp Rail bends — so the
+  // rubber band / rotted wood hugs the actual (possibly bent) cushion crest.
+  const list = cushions(state.dims, state.movedPockets).list;
   for (const span of list) {
     if (bh.includes(span.rail)) drawRubberRail(ctx, span, t);
     if (dr.includes(span.rail)) drawRottedRail(ctx, span);
@@ -657,8 +659,11 @@ export function drawPlacementGhost(ctx, state, pick, hover, opts = {}) {
       const bp = toPx({ u: b.u, v: b.v }, state.dims);
       return Math.hypot(bp.x - x, bp.y - y) < u.pocketR + r * (b.size || 1);
     });
-    // Warp Rail: preview the two rails bending from their neighbours to the cursor.
+    // Warp Rail: preview the two rails bending from their neighbours to the
+    // cursor, and flag (in red) a bend that would seal another pocket's mouth.
+    let blockedIdx = -1;
     if (id === 'warp_rail' && opts.pocket != null) {
+      blockedIdx = warpBlocksPocket(state.dims, state.movedPockets, opts.pocket, toRel({ x, y }, state.dims));
       const dv = (i) => {
         const m = state.movedPockets && state.movedPockets[i];
         if (m && m.warp) return toPx(m, state.dims);
@@ -667,13 +672,24 @@ export function drawPlacementGhost(ctx, state, pick, hover, opts = {}) {
       };
       const NEIGH = { 0: [3, 1], 1: [0, 2], 2: [1, 5], 5: [2, 4], 4: [5, 3], 3: [4, 0] };
       const ns = NEIGH[opts.pocket] || [];
-      ctx.strokeStyle = 'rgba(120,230,150,0.85)'; ctx.lineWidth = 3; ctx.setLineDash([7, 5]);
+      ctx.strokeStyle = blockedIdx >= 0 ? 'rgba(255,80,80,0.9)' : 'rgba(120,230,150,0.85)';
+      ctx.lineWidth = 3; ctx.setLineDash([7, 5]);
       ns.forEach((ni) => { const v = dv(ni); ctx.beginPath(); ctx.moveTo(v.x, v.y); ctx.lineTo(x, y); ctx.stroke(); });
       ctx.setLineDash([]);
+      if (blockedIdx >= 0) { // pulse the pocket this bend would seal
+        const q = pocketLayout(state.dims, state.movedPockets)[blockedIdx];
+        const pulse = (Math.sin(performance.now() / 160) + 1) / 2;
+        ctx.beginPath(); ctx.arc(q.x, q.y, q.r + 5 + pulse * 4, 0, Math.PI * 2);
+        ctx.strokeStyle = 'rgba(255,70,70,0.95)'; ctx.lineWidth = 3; ctx.stroke();
+        ctx.font = `${q.r * 1.1}px sans-serif`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+        ctx.fillStyle = 'rgba(255,90,90,0.95)';
+        ctx.fillText('🚫', q.x, q.y - q.r * 2);
+      }
     }
+    const invalid = onBall || blockedIdx >= 0;
     ctx.beginPath(); ctx.arc(x, y, u.pocketR, 0, Math.PI * 2);
     ctx.fillStyle = 'rgba(4,4,4,0.7)'; ctx.fill();
-    ctx.strokeStyle = onBall ? 'rgba(255,60,60,0.95)' : 'rgba(255,215,0,0.9)';
+    ctx.strokeStyle = invalid ? 'rgba(255,60,60,0.95)' : 'rgba(255,215,0,0.9)';
     ctx.lineWidth = 2.5; ctx.setLineDash([6, 5]); ctx.stroke(); ctx.setLineDash([]);
   } else if (id === 'bouncer') {
     ctx.beginPath(); ctx.arc(x, y, r * F.bouncer, 0, Math.PI * 2);

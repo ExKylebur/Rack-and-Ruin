@@ -50,8 +50,8 @@ export function applyShot(sim, power, angle, effects = {}, spin = { x: 0, y: 0 }
   const cue = sim.find((b) => b.num === 0 && !b.pocketed);
   if (!cue) return;
   let p = power;
-  if (effects.roidRage) p = Math.max(p, 0.75);
   if (effects.coolHands) p = Math.min(p, 0.25);
+  if (effects.roidRage) p = Math.max(p, 0.75); // roid outranks cool if both are stacked
   let mult = effects.turbo ? 1.6 : 1;
   cue.vx = Math.cos(angle) * p * MAX_SHOT_SPEED * mult;
   cue.vy = Math.sin(angle) * p * MAX_SHOT_SPEED * mult;

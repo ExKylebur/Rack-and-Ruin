@@ -8,7 +8,7 @@
 
 import { createGameState, rackBalls, serializeSnapshot, applySnapshot } from './state.js';
 import * as online from './online/client.js';
-import { fitCanvas, playArea, pocketLayout, toPx, toRel, unitsFor } from './geometry.js';
+import { fitCanvas, playArea, pocketLayout, toPx, toRel, unitsFor, warpBlocksPocket } from './geometry.js';
 import { drawTable } from './render/table.js';
 import { drawBall } from './render/ball.js';
 import { drawAim } from './render/aim.js';
@@ -244,13 +244,22 @@ function beginCharge() {
   if (!isMyTurn() || cardPhaseActive || pendingPick) return;
   charging = true;
   chargeStart = performance.now();
+  // The bar PING-PONGS through the allowed power window at a constant %/sec —
+  // release on the sweet spot. Cards clamp the window: Cool Hands sweeps 0–25,
+  // Roid Rage starts INSTANTLY at 75 and sweeps 75–100 (no dead ramp-up time).
+  const RAMP = 1400; // ms for a full 0→100 sweep
   const loop = () => {
     if (!charging) return;
-    let p = Math.min((performance.now() - chargeStart) / 1500, 1);
     const e = state.activeEffects || {};
-    if (e.roidRage) p = Math.max(p, 0.75);
-    if (e.coolHands) p = Math.min(p, 0.25);
-    shotPower = p;
+    const lo = e.roidRage ? 0.75 : 0;
+    const hi = Math.max(lo, e.coolHands ? 0.25 : 1); // roid outranks cool if stacked
+    const range = hi - lo;
+    if (range < 0.001) {
+      shotPower = lo;
+    } else {
+      const ph = ((performance.now() - chargeStart) / (RAMP * range)) % 2;
+      shotPower = lo + range * (ph < 1 ? ph : 2 - ph);
+    }
     updatePowerBar(shotPower);
     render();
     chargeAnim = requestAnimationFrame(loop);
@@ -650,6 +659,12 @@ function resolvePick(x, y) {
           return Math.hypot(bp.x - x, bp.y - y) < pr + r * (b.size || 1);
         });
         if (onBall) { showToast("Can't drop a pocket onto a ball"); return; }
+        // Warp Rail bends the boundary — refuse a bend that would wall off
+        // another pocket's mouth (the validator builds the would-be cushions).
+        if (item.id === 'warp_rail') {
+          const blocked = warpBlocksPocket(state.dims, state.movedPockets, item.opts.pocket, rel);
+          if (blocked >= 0) { showToast('Blocked — that bend would seal another pocket'); return; }
+        }
         item.opts.to = rel;
       }
       else item.opts.pos = rel;

@@ -147,6 +147,36 @@ export function cushions(dims, moved = {}) {
   return { nose, list: edges.map(([A, B, rail]) => buildEdge(A, B, rail)) };
 }
 
+function segDist(px, py, x1, y1, x2, y2) {
+  const dx = x2 - x1, dy = y2 - y1;
+  const len2 = dx * dx + dy * dy || 1;
+  let t = ((px - x1) * dx + (py - y1) * dy) / len2;
+  t = t < 0 ? 0 : t > 1 ? 1 : t;
+  return Math.hypot(px - (x1 + t * dx), py - (y1 + t * dy));
+}
+
+// Would warping pocket `idx` to `dropRel` strand another pocket? Builds the
+// would-be bent boundary and checks every cushion face against every other
+// pocket's mouth (a face closer than the mouth radius seals it), plus a
+// proximity rule so two mouths can't crowd into one spot. On the default
+// table the nearest face sits ~1.1×r from its pocket centre, so r itself is a
+// safe threshold. Returns the blocked pocket's index, or -1 if the warp is ok.
+export function warpBlocksPocket(dims, moved, idx, dropRel) {
+  const u = unitsFor(dims);
+  const test = { ...(moved || {}), [idx]: { u: dropRel.u, v: dropRel.v, warp: true } };
+  const pockets = pocketLayout(dims, test);
+  const me = pockets[idx];
+  const faces = cushions(dims, test).list.flatMap((c) => c.faces);
+  for (const q of pockets) {
+    if (q.index === idx) continue;
+    if (Math.hypot(me.x - q.x, me.y - q.y) < me.r + q.r + 2 * u.ballR) return q.index;
+    for (const f of faces) {
+      if (segDist(q.x, q.y, f.x1, f.y1, f.x2, f.y2) < q.r) return q.index;
+    }
+  }
+  return -1;
+}
+
 // The six pockets in pixels. `moved` maps pocketIndex -> {u,v} for any pocket
 // relocated by the Move Hole card; unlisted pockets keep their default spot.
 export function pocketLayout(dims, moved = {}) {
