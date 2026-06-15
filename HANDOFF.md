@@ -1,6 +1,6 @@
 # Rack & Ruin — Session Handoff
 
-Last updated: 2026-06-12
+Last updated: 2026-06-12 (round 3)
 
 ## TL;DR
 The full rewrite is implemented and committed on the **`rewrite`** branch.
@@ -52,7 +52,26 @@ left is human play for *feel/balance* tuning, not correctness.
   also serves the static files (`/` → `PLAY ME.html`).
 
 ## What the 2026-06-12 session changed (user playtest feedback rounds)
-**51 unit tests** + the automated 31-card in-browser playtest pass.
+**53 unit tests** + the automated 31-card in-browser playtest pass.
+
+**Feedback round 3 (call-your-pocket, fog, cloak)**
+- **Call-your-pocket on the 8** (8-ball/doubles): `state.calledPocket` (serialized);
+  `physics` records `turn.pocketDrops[num] = pocketIndex`; `rules/eightball`
+  only awards the win if the 8 dropped in the called pocket (wrong/uncalled/
+  early/foul → opponent wins). When the current player is on the 8 (group
+  cleared, 8 up) they MUST call before shooting — clicking a pocket calls it
+  (re-callable), clicking felt shoots; `beginCharge` + mousedown/touch gate on
+  `needsCall()`. `#callPocket` banner + status; `drawCalledPocketUI` shows gold
+  pick-me rings pre-call and locked-in flair (rings + inward chevrons + 🎯)
+  with a flourish on lock-in. `calledPocket` clears after the shot resolves and
+  syncs online via the snapshot. Helpers `onEightForCurrent`/`needsCall`/
+  `pocketAt`/`callPocketAt`/`updateCallUI`; `RR.callPocket`/`RR.onEight` hooks.
+- **Fog of War** layer is now fully opaque (was rgba …,0.95) so nothing outside
+  the beam is readable; the beam also passes through a cloaked ball.
+- **Cloak**: `drawAim` skips the cloaked ball, so the ghost/cut-line never
+  betrays its post-contact direction (aim ray passes through it).
+
+**Feedback round 2 (warp rail + power bar)**
 
 **Feedback round 2 (warp rail + power bar)**
 - **Warp blocking guard:** `geometry.warpBlocksPocket` builds the would-be bent
