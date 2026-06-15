@@ -41,6 +41,7 @@ export function createGameState() {
     currentPlayer: 0,
     cardPhasePlayer: null,  // explicit; replaces fragile currentPlayer±1 math
     activeEffects: {},
+    calledPocket: null,     // 8-ball: pocket index the shooter called for the 8
     turn: { firstHit: null, pocketed: [], foul: false },
   };
 }
@@ -157,6 +158,7 @@ export function serializeSnapshot(state) {
     })),
     currentPlayer: state.currentPlayer,
     activeEffects: state.activeEffects,
+    calledPocket: state.calledPocket ?? null,
   };
 }
 
@@ -179,6 +181,7 @@ export function applySnapshot(state, snap) {
   state.movedPockets = snap.movedPockets || {};
   state.pocketState = snap.pocketState || {};
   state.activeEffects = snap.activeEffects || {};
+  state.calledPocket = snap.calledPocket ?? null;
   state.currentPlayer = snap.currentPlayer;
   (snap.players || []).forEach((sp, i) => {
     if (!state.players[i]) state.players[i] = { name: sp.name, seat: i };

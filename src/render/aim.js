@@ -40,9 +40,12 @@ export function drawAim(ctx, state, angle, power, jump = false) {
   // Nearest object-ball contact via EXACT ray–circle intersection, so the ghost
   // ball rests perfectly tangent to the target — sliding the aim around a ball no
   // longer clips the ghost inside it (the old discrete march overshot by a step).
+  // A cloaked ball is hidden from the viewer — the aim ray passes straight
+  // through it so the ghost/cut line never betrays its position or reaction.
+  const cloaked = (state.activeEffects || {}).cloaked;
   let ballT = Infinity, target = null;
   for (const b of state.balls) {
-    if (b.pocketed || b.num === 0) continue;
+    if (b.pocketed || b.num === 0 || b.num === cloaked) continue;
     const bp = toPx({ u: b.u, v: b.v }, state.dims);
     const br = cue.r + base * (b.size || 1);
     const fx = cue.x - bp.x, fy = cue.y - bp.y;

@@ -14,7 +14,7 @@ function game(variant, nPlayers) {
   return s;
 }
 const pocket = (s, ...nums) => nums.forEach((n) => { const b = s.balls.find((x) => x.num === n); if (b) b.pocketed = true; });
-const turn = (o) => ({ firstHit: null, pocketed: [], cueScratched: false, isBreak: false, ...o });
+const turn = (o) => ({ firstHit: null, pocketed: [], cueScratched: false, isBreak: false, pocketDrops: {}, ...o });
 
 // ---- 8-ball ----
 test('8-ball: first legal pocket assigns groups and keeps the turn', () => {
@@ -45,14 +45,37 @@ test('8-ball: sinking the 8 before clearing your group loses', () => {
   assert.equal(res.winner, 1);
 });
 
-test('8-ball: clearing your group then sinking the 8 wins', () => {
+test('8-ball: clearing your group then sinking the 8 in the CALLED pocket wins', () => {
   const s = game('eight', 2);
   s.players[0].group = 'solids'; s.players[1].group = 'stripes';
+  s.calledPocket = 2; // top-right
   pocket(s, 1, 2, 3, 4, 5, 6, 7); // solids cleared (before this shot)
   pocket(s, 8);
-  const res = evaluateTurn(s, turn({ firstHit: 8, pocketed: [8] }));
+  const res = evaluateTurn(s, turn({ firstHit: 8, pocketed: [8], pocketDrops: { 8: 2 } }));
   assert.equal(res.gameOver, true);
   assert.equal(res.winner, 0);
+});
+
+test('8-ball: sinking the 8 in the WRONG pocket loses', () => {
+  const s = game('eight', 2);
+  s.players[0].group = 'solids'; s.players[1].group = 'stripes';
+  s.calledPocket = 2;            // called top-right
+  pocket(s, 1, 2, 3, 4, 5, 6, 7);
+  pocket(s, 8);
+  const res = evaluateTurn(s, turn({ firstHit: 8, pocketed: [8], pocketDrops: { 8: 5 } })); // fell in bottom-right
+  assert.equal(res.gameOver, true);
+  assert.equal(res.winner, 1, 'opponent wins on a wrong-pocket 8');
+});
+
+test('8-ball: sinking the 8 with no pocket called loses', () => {
+  const s = game('eight', 2);
+  s.players[0].group = 'solids'; s.players[1].group = 'stripes';
+  s.calledPocket = null;
+  pocket(s, 1, 2, 3, 4, 5, 6, 7);
+  pocket(s, 8);
+  const res = evaluateTurn(s, turn({ firstHit: 8, pocketed: [8], pocketDrops: { 8: 0 } }));
+  assert.equal(res.gameOver, true);
+  assert.equal(res.winner, 1, 'must call before sinking the 8');
 });
 
 // ---- 9-ball ----

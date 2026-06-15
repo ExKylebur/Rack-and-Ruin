@@ -41,7 +41,7 @@ export function makeSim(state) {
 }
 
 export function pocketsFor(state) { return pocketLayout(CANON, state.movedPockets); }
-export function freshTurn() { return { firstHit: null, pocketed: [], cueScratched: false }; }
+export function freshTurn() { return { firstHit: null, pocketed: [], cueScratched: false, pocketDrops: {} }; }
 
 // Jump shot: flight distance at full power, as a fraction of the play width.
 export const JUMP_RANGE_FRAC = 0.55;
@@ -137,6 +137,7 @@ function pocketCheck(b, pockets, turn, pocketState, ev) {
     if (dx * dx + dy * dy < cap * cap) {
       b.pocketed = true; b.vx = 0; b.vy = 0;
       turn.pocketed.push(b.num);
+      if (turn.pocketDrops) turn.pocketDrops[b.num] = p.index; // which pocket it fell in (called-pocket rules)
       if (b.num === 0) turn.cueScratched = true;
       if (ev) ev.push({ type: 'pocket', kind: b.num === 0 ? 'scratch' : 'legal', num: b.num, ...toRel({ x: p.x, y: p.y }, CANON) });
       return;

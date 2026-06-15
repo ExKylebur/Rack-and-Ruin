@@ -429,6 +429,35 @@ body {
 #ballInHand .bih-title { font-weight: 800; color: #ffd9c2; font-size: 15px; }
 #ballInHand .bih-sub { font-size: 12px; color: #ffb38a; }
 
+/* Call-your-pocket banner (8-ball) */
+#callPocket {
+  position: absolute;
+  top: 14px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 41;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 3px;
+  padding: 10px 22px;
+  border-radius: 12px;
+  background: rgba(36, 26, 6, 0.92);
+  backdrop-filter: blur(8px);
+  border: 1px solid rgba(255, 201, 77, 0.65);
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.55), 0 0 22px rgba(255, 190, 60, 0.18);
+  pointer-events: none;
+  max-width: 90%;
+  text-align: center;
+  animation: bannerIn 0.25s ease-out, callPulse 1.3s ease-in-out 0.25s infinite;
+}
+#callPocket .cp-title { font-weight: 800; color: #ffe6a8; font-size: 15px; letter-spacing: 0.02em; }
+#callPocket .cp-sub { font-size: 12px; color: #ffd27a; }
+@keyframes callPulse {
+  0%, 100% { box-shadow: 0 10px 30px rgba(0, 0, 0, 0.55), 0 0 0 0 rgba(255, 190, 60, 0.4); }
+  50% { box-shadow: 0 10px 30px rgba(0, 0, 0, 0.55), 0 0 22px 4px rgba(255, 190, 60, 0.35); }
+}
+
 @keyframes bannerIn {
   from { opacity: 0; transform: translateX(-50%) translateY(-10px); }
   to { opacity: 1; transform: translateX(-50%) translateY(0); }

@@ -53,9 +53,18 @@ export function evaluateEight(state, turn, variant) {
   // ---- 8-ball decides the game ----
   if (eightPotted) {
     const ownLeft = group ? onTable(state, groupNums(group)).length : 99;
-    const legalWin = !foul && group && ownLeft === 0;
-    if (legalWin) return done(true, `${teamName} sinks the 8 — wins!`);
-    return done(false, `${teamName} pocketed the 8 early — ${oppName} wins!`);
+    // You must CALL a pocket for the 8 and sink it there. A non-corner/side
+    // mismatch, an uncalled 8, an early 8, or a foul all hand the game over.
+    const called = state.calledPocket;
+    const droppedIn = turn.pocketDrops ? turn.pocketDrops[8] : undefined;
+    const calledOk = called != null && droppedIn != null && droppedIn === called;
+    const legalWin = !foul && group && ownLeft === 0 && calledOk;
+    if (legalWin) return done(true, `${teamName} calls it and sinks the 8 — wins!`);
+    const why = foul ? 'on a foul'
+      : ownLeft > 0 ? 'too early'
+        : called == null ? 'without calling a pocket'
+          : 'in the wrong pocket';
+    return done(false, `${teamName} pocketed the 8 ${why} — ${oppName} wins!`);
   }
 
   // ---- continuation ----

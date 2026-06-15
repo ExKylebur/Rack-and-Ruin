@@ -111,8 +111,9 @@ export function drawFog(ctx, state, aimAngle) {
     end = { x, y };
     if (x < pa.left || x > pa.right || y < pa.top || y > pa.bottom) break;
     let hit = false;
+    const cloaked = (state.activeEffects || {}).cloaked;
     for (const b of state.balls) {
-      if (b.pocketed || b.num === 0) continue;
+      if (b.pocketed || b.num === 0 || b.num === cloaked) continue;
       const bp = toPx({ u: b.u, v: b.v }, state.dims);
       const br = r + r * (b.size || 1);
       if ((bp.x - x) ** 2 + (bp.y - y) ** 2 < br * br) { hit = true; break; }
@@ -124,7 +125,9 @@ export function drawFog(ctx, state, aimAngle) {
   fog.width = Math.max(1, Math.round(w));
   fog.height = Math.max(1, Math.round(h));
   const fc = fog.getContext('2d');
-  fc.fillStyle = 'rgba(2,4,8,0.95)';
+  // Fully opaque: outside the revealed beam the table is completely hidden —
+  // no faint balls/pockets bleeding through (was 0.95, which you could read).
+  fc.fillStyle = 'rgb(3,5,10)';
   fc.fillRect(0, 0, w, h);
 
   fc.globalCompositeOperation = 'destination-out';
@@ -718,6 +721,64 @@ export function drawPlacementGhost(ctx, state, pick, hover, opts = {}) {
     ctx.strokeStyle = 'rgba(255,90,120,0.9)'; ctx.lineWidth = 2; ctx.setLineDash([6, 5]); ctx.stroke(); ctx.setLineDash([]);
     ctx.font = `${r * 1.5}px sans-serif`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
     ctx.fillText('🌀', x, y);
+  }
+  ctx.restore();
+}
+
+// Called-pocket UI for the 8-ball. When `needCall` (on the 8, nothing called
+// yet) every pocket gets a pulsing gold "pick me" ring. Once `calledIdx` is set
+// that pocket gets the full flair: pulsing concentric rings, inward-spinning
+// chevrons, and a 🎯 tag — so it's unmistakable which hole was called.
+export function drawCalledPocketUI(ctx, state, calledIdx, needCall) {
+  const pockets = pocketLayout(state.dims, state.movedPockets);
+  const t = performance.now();
+  ctx.save();
+  if (needCall && calledIdx == null) {
+    const pulse = (Math.sin(t / 260) + 1) / 2;
+    for (const p of pockets) {
+      ctx.beginPath();
+      ctx.arc(p.x, p.y, p.r + 5 + pulse * 5, 0, Math.PI * 2);
+      ctx.strokeStyle = `rgba(255,210,90,${0.45 + pulse * 0.4})`;
+      ctx.lineWidth = 2.5;
+      ctx.shadowColor = 'rgba(255,200,70,0.8)';
+      ctx.shadowBlur = 10;
+      ctx.stroke();
+    }
+  }
+  if (calledIdx != null && pockets[calledIdx]) {
+    const p = pockets[calledIdx];
+    const pulse = (Math.sin(t / 240) + 1) / 2;
+    ctx.shadowColor = 'rgba(255,205,70,0.9)';
+    ctx.shadowBlur = 16;
+    for (let k = 0; k < 2; k++) {
+      ctx.beginPath();
+      ctx.arc(p.x, p.y, p.r + 6 + k * 7 + pulse * 4, 0, Math.PI * 2);
+      ctx.strokeStyle = `rgba(255,205,70,${0.9 - k * 0.35})`;
+      ctx.lineWidth = 3 - k;
+      ctx.stroke();
+    }
+    ctx.shadowBlur = 0;
+    // inward-spinning chevrons aiming at the called hole
+    const spin = t / 600;
+    const ring = p.r + 18 + pulse * 3;
+    ctx.fillStyle = 'rgba(255,225,120,0.95)';
+    for (let i = 0; i < 4; i++) {
+      const a = spin + i * (Math.PI / 2);
+      const cx = p.x + Math.cos(a) * ring, cy = p.y + Math.sin(a) * ring;
+      const ux = Math.cos(a), uy = Math.sin(a), px = -uy, py = ux;
+      const s = Math.max(4, p.r * 0.34);
+      ctx.beginPath();
+      ctx.moveTo(cx - ux * s, cy - uy * s);                 // tip points inward
+      ctx.lineTo(cx + px * s + ux * s * 0.2, cy + py * s + uy * s * 0.2);
+      ctx.lineTo(cx - px * s + ux * s * 0.2, cy - py * s + uy * s * 0.2);
+      ctx.closePath();
+      ctx.fill();
+    }
+    const tag = p.r * 1.1;
+    const ty = p.y + (p.y < state.dims.h / 2 ? p.r + tag : -(p.r + tag));
+    ctx.font = `${tag}px sans-serif`;
+    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.fillText('🎯', p.x, ty);
   }
   ctx.restore();
 }

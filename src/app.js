@@ -12,14 +12,14 @@ import { fitCanvas, playArea, pocketLayout, toPx, toRel, unitsFor, warpBlocksPoc
 import { drawTable } from './render/table.js';
 import { drawBall } from './render/ball.js';
 import { drawAim } from './render/aim.js';
-import { drawEffects, drawEffectBadges, drawPickHighlights, drawFog, drawPlacementGhost } from './render/effects.js';
+import { drawEffects, drawEffectBadges, drawPickHighlights, drawFog, drawPlacementGhost, drawCalledPocketUI } from './render/effects.js';
 import * as particles from './render/particles.js';
 import {
   makeSim, pocketsFor, freshTurn, applyShot, step, syncToState, commit, MAX_SHOT_SPEED,
 } from './physics.js';
 import { CARD_POOL, cardById } from './cards/registry.js';
 import { applyCard, clearBallEffects, decayTableEffects } from './cards/effects.js';
-import { evaluateTurn, nextPlayer, commitmentLabel } from './rules/index.js';
+import { evaluateTurn, nextPlayer, commitmentLabel, groupNums } from './rules/index.js';
 
 const MAX_HAND = 7;
 const DRAW_PER_TURN = 3;
@@ -97,6 +97,12 @@ function render() {
     drawPickHighlights(ctx, state, pendingPick);
     if (pendingPick.type === 'place') drawPlacementGhost(ctx, state, pendingPick, pickHover, cardQueue[0]?.opts || {});
   }
+  // Called-pocket flair: pre-call pocket highlights, then the locked-in target.
+  const needCall = onEightForCurrent() && isMyTurn() && !cardPhaseActive && !pendingPick
+    && !placingCue && !state.gameOver;
+  if (needCall || state.calledPocket != null) {
+    drawCalledPocketUI(ctx, state, state.calledPocket, needCall && !ballsMoving);
+  }
 }
 
 // Low-frequency redraw so animated effects (portals, pick rings) move while idle.
@@ -110,7 +116,7 @@ function startIdleLoop() {
       || Object.values(state.pocketState || {}).some((ps) => ps && (ps.blocked || ps.shrunk))
       || performance.now() < trapAnimUntil;
     const animated = pendingPick || placingCue || (e.drunk && !ballsMoving) || animatedFx
-      || particles.alive();
+      || particles.alive() || ((onEightForCurrent() && isMyTurn()) || state.calledPocket != null);
     if (animated && !ballsMoving) render();
     idleAnim = requestAnimationFrame(tick);
   };
@@ -189,6 +195,7 @@ function startGame() {
   state.movedPockets = {};
   state.activeEffects = {};
   state.pocketState = {};
+  state.calledPocket = null;
   state.players.forEach((p) => { p.hand = []; });
   placingCue = false; updateBallInHandUI();
   ballsMoving = false;
@@ -242,6 +249,7 @@ function setOnlineMode(mode) {
 function beginCharge() {
   if (ballsMoving || !state.started || state.gameOver || placingCue) return;
   if (!isMyTurn() || cardPhaseActive || pendingPick) return;
+  if (needsCall()) { showToast('Call a pocket for the 8 first'); updateCallUI(); render(); return; }
   charging = true;
   chargeStart = performance.now();
   // The bar PING-PONGS through the allowed power window at a constant %/sec —
@@ -365,13 +373,14 @@ function resolveShot() {
   const shooter = state.currentPlayer;
 
   clearBallEffects(state);           // ball/cue effects last exactly one shot
-  const res = evaluateTurn(state, t); // may assign groups; returns the outcome
+  const res = evaluateTurn(state, t); // may assign groups; reads state.calledPocket
+  state.calledPocket = null;          // the call is consumed by this shot
   state.broken = true;
   if (t.cueScratched) respotCue();
   (res.respot || []).forEach(respotBall);
 
   if (res.gameOver) {
-    updatePlayers(); updateEffects(); render();
+    updatePlayers(); updateEffects(); updateCallUI(); render();
     showGameOver(res.reason);
     maybePush();
     return;
@@ -379,7 +388,7 @@ function resolveShot() {
 
   if (res.keepTurn) {
     setStatus(res.message);
-    updatePlayers(); updateEffects(); render();
+    updatePlayers(); updateEffects(); updateCallUI(); render();
     maybePush();
     return;
   }
@@ -391,7 +400,7 @@ function resolveShot() {
     placingCue = state.ballInHand && isMyTurn();
     if (state.ballInHand) setStatus(`${current().name}: ball in hand — place the cue ball, then shoot`);
     else setStatus(`${current().name}'s turn`);
-    updatePlayers(); updateEffects(); updateHand(); updateBallInHandUI(); render();
+    updatePlayers(); updateEffects(); updateHand(); updateBallInHandUI(); updateCallUI(); render();
     maybePush();
   };
 
@@ -400,6 +409,60 @@ function resolveShot() {
 }
 
 function current() { return state.players[state.currentPlayer]; }
+
+// ---- Call-your-pocket (8-ball / doubles) ----
+const POCKET_NAMES = ['top-left', 'top-middle', 'top-right', 'bottom-left', 'bottom-middle', 'bottom-right'];
+function pocketName(i) { return POCKET_NAMES[i] || `pocket ${i}`; }
+
+// True when the current player is shooting AT the 8 (their group is cleared and
+// the 8 is still on the table) in a variant that calls the 8.
+function onEightForCurrent() {
+  if (state.variant !== 'eight' && state.variant !== 'doubles') return false;
+  const p = current();
+  if (!p || !p.group) return false;
+  const grp = groupNums(p.group);
+  const groupLeft = state.balls.filter((b) => !b.pocketed && grp.includes(b.num)).length;
+  const eightOn = state.balls.some((b) => b.num === 8 && !b.pocketed);
+  return groupLeft === 0 && eightOn;
+}
+function needsCall() { return onEightForCurrent() && isMyTurn() && state.calledPocket == null; }
+
+function pocketAt(x, y) {
+  const pk = pocketLayout(state.dims, state.movedPockets);
+  let best = -1, bd = Infinity;
+  pk.forEach((p, i) => { const d = Math.hypot(p.x - x, p.y - y); if (d < p.r * 2.2 && d < bd) { bd = d; best = i; } });
+  return best;
+}
+
+// A click landed near a pocket while we're on the 8 -> call (or re-call) it.
+function callPocketAt(x, y) {
+  const i = pocketAt(x, y);
+  if (i < 0) return false;
+  state.calledPocket = i;
+  sfx('cardPlayed', 'block_pocket'); // a crisp "locked in" cue
+  setStatus(`${current().name} called the ${pocketName(i)} pocket — take the shot`);
+  const p = pocketLayout(state.dims, state.movedPockets)[i];
+  if (p) particles.spawnCardFlourish(p.x, p.y, '🎯', 45);
+  updateCallUI(); maybePush(); startIdleLoop(); render();
+  return true;
+}
+
+// Banner over the table prompting / confirming the 8-ball call.
+function updateCallUI() {
+  const el = document.getElementById('callPocket');
+  if (!el) return;
+  const live = onEightForCurrent() && isMyTurn() && !cardPhaseActive && !pendingPick
+    && !placingCue && !ballsMoving && !state.gameOver;
+  if (!live) { el.classList.add('hidden'); return; }
+  if (state.calledPocket == null) {
+    el.querySelector('.cp-title').textContent = '🎱 Call your pocket';
+    el.querySelector('.cp-sub').textContent = 'Click the hole you’ll sink the 8 in';
+  } else {
+    el.querySelector('.cp-title').textContent = `🎯 Called: ${pocketName(state.calledPocket)}`;
+    el.querySelector('.cp-sub').textContent = 'Click the felt to shoot · click another hole to re-call';
+  }
+  el.classList.remove('hidden');
+}
 
 function respotCue() {
   const cue = state.balls.find((b) => b.num === 0);
@@ -462,6 +525,7 @@ function placeCueAt(px, py) {
   placingCue = false; updateBallInHandUI();
   state.ballInHand = false;
   setStatus(`${current().name}'s turn`);
+  updateCallUI();
   render();
 }
 
@@ -729,6 +793,11 @@ function wireInput() {
     const pos = canvasPos(e);
     if (pendingPick) { resolvePick(pos.x, pos.y); return; }
     if (placingCue) { placeCueAt(pos.x, pos.y); return; }
+    // On the 8: a click near a pocket calls it; clicking the felt shoots.
+    if (onEightForCurrent() && isMyTurn()) {
+      if (callPocketAt(pos.x, pos.y)) return;
+      if (state.calledPocket == null) { showToast('Call a pocket for the 8 first'); return; }
+    }
     if (controlMode === 'mouse') beginCharge();
   });
   window.addEventListener('mouseup', () => { if (controlMode === 'mouse') releaseCharge(); });
@@ -746,6 +815,7 @@ function wireInput() {
       resolvePick(pos.x, pos.y); return;
     }
     if (placingCue) { placeCueAt(pos.x, pos.y); return; }
+    if (onEightForCurrent() && isMyTurn() && callPocketAt(pos.x, pos.y)) return;
     phoneDragStart = pos; phoneDragging = false;
   }, { passive: false });
   canvas.addEventListener('touchmove', (e) => {
@@ -1012,7 +1082,7 @@ function applyOnlineSnapshot(snap) {
   } else {
     setStatus(`Waiting for ${state.players[state.currentPlayer]?.name || 'opponent'}…`);
   }
-  updatePlayers(); updateHand(); updateEffects(); render(); startIdleLoop();
+  updatePlayers(); updateHand(); updateEffects(); updateCallUI(); render(); startIdleLoop();
 }
 
 // ===================== BOOT =====================
@@ -1091,6 +1161,10 @@ function boot() {
     cardPhaseActive: () => cardPhaseActive,
     playHand: (slot) => playHandCard(slot),
     clickRel: (u, v) => { const p = toPx({ u, v }, state.dims); if (pendingPick) resolvePick(p.x, p.y); else if (placingCue) placeCueAt(p.x, p.y); },
+    // call-your-pocket helpers
+    onEight: () => onEightForCurrent(),
+    callPocket: (i) => { state.calledPocket = i; updateCallUI(); render(); maybePush(); },
+    calledPocket: () => state.calledPocket,
   };
 }
 
