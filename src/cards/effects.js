@@ -43,7 +43,6 @@ const APPLIERS = {
   small_ball: (s) => { ae(s).smallBall = true; const c = cueBall(s); if (c) c.size = 0.5; },
   oil_cue: (s) => { ae(s).oilCue = true; },
   reverse_spin: (s) => { ae(s).reverseSpin = true; },
-  mirror: (s) => { ae(s).mirror = true; },
   magnet: (s) => { ae(s).magnet = true; },
   turbo: (s) => { ae(s).turbo = true; },
 
@@ -62,10 +61,17 @@ const APPLIERS = {
   block_pocket: (s, o) => { pstate(s, o.pocket).blocked = true; pstate(s, o.pocket).blockedTurns = 2; },
   open_pocket: (s, o) => { const p = s.pocketState && s.pocketState[o.pocket]; if (p) { p.blocked = false; delete p.blockedTurns; } },
   pocket_shrink: (s, o) => { pstate(s, o.pocket).shrunk = true; pstate(s, o.pocket).shrunkTurns = 3; },
-  move_hole: (s, o) => { (s.movedPockets ||= {})[o.pocket] = { ...o.to }; },
+  // Move Hole relocates a pocket as a free-floating hole (straight rails). But if
+  // that pocket was already WARPED, moving it must NOT silently snap the rails
+  // back to straight — the warp is sticky and the bent rails follow to the new
+  // spot. (Bug: warp then move-hole the same pocket used to revert the warp.)
+  move_hole: (s, o) => {
+    const prev = (s.movedPockets ||= {})[o.pocket];
+    s.movedPockets[o.pocket] = (prev && prev.warp) ? { ...o.to, warp: true } : { ...o.to };
+  },
   // Warp Rail relocates a pocket AND bends the two rails meeting it (the `warp`
-  // flag tells geometry.cushions to move that boundary vertex). Move Hole leaves
-  // the rails straight. Both write movedPockets so the pocket capture/render follow.
+  // flag tells geometry.cushions to move that boundary vertex). Both write
+  // movedPockets so the pocket capture/render follow.
   warp_rail: (s, o) => { (s.movedPockets ||= {})[o.pocket] = { ...o.to, warp: true }; },
   earthquake: (s) => {
     for (const b of s.balls) {
@@ -97,7 +103,7 @@ export function clearBallEffects(state) {
   const e = state.activeEffects || {};
   for (const k of ['fogOfWar', 'confusion', 'confusionMap', 'confusionStripeMap', 'cloaked',
     'sticky', 'drunk', 'shortsighted', 'roidRage', 'coolHands', 'bigBall', 'smallBall',
-    'oilCue', 'reverseSpin', 'mirror', 'magnet', 'turbo']) {
+    'oilCue', 'reverseSpin', 'magnet', 'turbo']) {
     delete e[k];
   }
   for (const b of state.balls) {

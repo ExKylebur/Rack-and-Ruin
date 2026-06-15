@@ -28,11 +28,7 @@ export function drawBall(ctx, ball, state) {
   const base = unitsFor(state.dims).ballR;
   const r = base * (ball.size || 1);
 
-  // Position (with optional left-right mirror of object balls).
-  let pos = toPx({ u: ball.u, v: ball.v }, state.dims);
-  if (ae.mirror && ball.num !== 0) {
-    pos = { x: state.dims.w - pos.x, y: pos.y };
-  }
+  const pos = toPx({ u: ball.u, v: ball.v }, state.dims);
   const { x: drawX, y: drawY } = pos;
 
   // Confusion: show a different number / flipped stripe.

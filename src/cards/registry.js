@@ -21,7 +21,6 @@ export const CARD_POOL = [
   { id: 'small_ball',   name: 'Small Ball',   icon: '⚬',  type: 'ball',  desc: 'Cue ball is half size — weaker, easy to miss.' },
   { id: 'oil_cue',      name: 'Oil Cue',      icon: '💧', type: 'ball',  desc: 'Cue ball slides further — little friction.' },
   { id: 'reverse_spin', name: 'Reverse Spin', icon: '↩️', type: 'ball',  desc: 'Cue ball English is flipped on contact.' },
-  { id: 'mirror',       name: 'Mirror',       icon: '🪞', type: 'ball',  desc: 'Object balls appear mirrored left-right.' },
   { id: 'magnet',       name: 'Magnet',       icon: '🧲', type: 'ball',  desc: 'Moving balls are pulled toward the nearest pocket.' },
   { id: 'turbo',        name: 'Turbo',        icon: '⚡', type: 'ball',  desc: 'Shot speed ×1.6 — hard to control.' },
   // ---- Table-effect cards ----

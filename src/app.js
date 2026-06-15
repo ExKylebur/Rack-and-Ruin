@@ -723,9 +723,12 @@ function resolvePick(x, y) {
           return Math.hypot(bp.x - x, bp.y - y) < pr + r * (b.size || 1);
         });
         if (onBall) { showToast("Can't drop a pocket onto a ball"); return; }
-        // Warp Rail bends the boundary — refuse a bend that would wall off
-        // another pocket's mouth (the validator builds the would-be cushions).
-        if (item.id === 'warp_rail') {
+        // Warp Rail (and Move Hole on an already-warped pocket, which carries the
+        // bend) reshapes the boundary — refuse a bend that would wall off another
+        // pocket's mouth (the validator builds the would-be cushions).
+        const carriesWarp = item.id === 'warp_rail'
+          || (item.id === 'move_hole' && state.movedPockets[item.opts.pocket]?.warp);
+        if (carriesWarp) {
           const blocked = warpBlocksPocket(state.dims, state.movedPockets, item.opts.pocket, rel);
           if (blocked >= 0) { showToast('Blocked — that bend would seal another pocket'); return; }
         }
@@ -979,7 +982,7 @@ function updateEffects() {
   add(e.sticky, '🍯 Sticky'); add(e.drunk, '🍺 Drunk'); add(e.shortsighted, '🔭 Shortsighted');
   add(e.roidRage, '💢 Roid ≥75%'); add(e.coolHands, '🧊 Cool ≤25%'); add(e.bigBall, '🔵 Big Cue');
   add(e.smallBall, '⚬ Small Cue'); add(e.oilCue, '💧 Oil'); add(e.reverseSpin, '↩️ Reverse');
-  add(e.mirror, '🪞 Mirror'); add(e.magnet, '🧲 Magnet'); add(e.turbo, '⚡ Turbo');
+  add(e.magnet, '🧲 Magnet'); add(e.turbo, '⚡ Turbo');
   add(e.bouncer, '🔴 Bouncer'); add(e.bearTrap, '🪤 Bear Trap'); add(e.icePatch, '🧊 Ice');
   add(e.mudPatch, '💩 Mud'); add(e.crosswind, '💨 Crosswind');
   add(e.portals && e.portals.length, '🌀 Portal');

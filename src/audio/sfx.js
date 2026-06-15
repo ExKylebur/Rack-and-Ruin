@@ -286,7 +286,6 @@
           this.tone({ type: 'sine', freq: 500, freqTo: 620, duration: 0.1, level: 0.1 });
           this.tone({ type: 'sine', freq: 420, freqTo: 320, duration: 0.12, level: 0.09, delay: 0.05 });
           return;
-        case 'mirror': this.tone({ type: 'triangle', freq: 880, freqTo: 880, duration: 0.12, level: 0.1 }); return;
         case 'shortsighted': this.tone({ type: 'sine', freq: 320, freqTo: 200, duration: 0.16, level: 0.1 }); return;
         default: break;
       }

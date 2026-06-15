@@ -558,8 +558,7 @@ export function drawEffectBadges(ctx, state) {
   for (const b of state.balls) {
     if (b.pocketed || e.cloaked === b.num) continue;
     if (!b.heavyweight && !b.lightweight) continue;
-    let p = toPx({ u: b.u, v: b.v }, state.dims);
-    if (e.mirror && b.num !== 0) p = { x: state.dims.w - p.x, y: p.y };
+    const p = toPx({ u: b.u, v: b.v }, state.dims);
     badge(ctx, b.heavyweight ? '🏋️' : '🪶', p.x, p.y + r * 1.55, r * 0.95, 0.95);
   }
 
@@ -662,10 +661,13 @@ export function drawPlacementGhost(ctx, state, pick, hover, opts = {}) {
       const bp = toPx({ u: b.u, v: b.v }, state.dims);
       return Math.hypot(bp.x - x, bp.y - y) < u.pocketR + r * (b.size || 1);
     });
-    // Warp Rail: preview the two rails bending from their neighbours to the
-    // cursor, and flag (in red) a bend that would seal another pocket's mouth.
+    // Warp Rail — and Move Hole on an already-warped pocket, which keeps the
+    // bend — preview the two rails bending from their neighbours to the cursor,
+    // flagging (in red) a bend that would seal another pocket's mouth.
+    const bendPreview = (id === 'warp_rail'
+      || (id === 'move_hole' && opts.pocket != null && state.movedPockets?.[opts.pocket]?.warp));
     let blockedIdx = -1;
-    if (id === 'warp_rail' && opts.pocket != null) {
+    if (bendPreview && opts.pocket != null) {
       blockedIdx = warpBlocksPocket(state.dims, state.movedPockets, opts.pocket, toRel({ x, y }, state.dims));
       const dv = (i) => {
         const m = state.movedPockets && state.movedPockets[i];

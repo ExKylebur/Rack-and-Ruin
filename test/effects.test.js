@@ -48,6 +48,25 @@ test('move_hole writes a relative override; block_pocket sets pocket state', () 
   assert.equal(s.pocketState[1].blocked, true);
 });
 
+test('move_hole on an already-warped pocket keeps the warp (rails follow, do not revert)', () => {
+  const s = fresh();
+  applyCard(s, 'warp_rail', { pocket: 5, to: { u: 0.7, v: 0.6 } });
+  assert.equal(s.movedPockets[5].warp, true);
+  // moving the SAME pocket must not silently straighten the rails
+  applyCard(s, 'move_hole', { pocket: 5, to: { u: 0.5, v: 0.5 } });
+  assert.deepEqual(s.movedPockets[5], { u: 0.5, v: 0.5, warp: true });
+});
+
+test('move_hole on an un-warped pocket stays a plain floating hole', () => {
+  const s = fresh();
+  applyCard(s, 'move_hole', { pocket: 2, to: { u: 0.4, v: 0.3 } });
+  assert.equal(s.movedPockets[2].warp, undefined);
+});
+
+test('the Mirror card was removed from the pool', () => {
+  assert.equal(CARD_POOL.find((c) => c.id === 'mirror'), undefined);
+});
+
 test('open_pocket clears a block; crosswind decays over turns', () => {
   const s = fresh();
   applyCard(s, 'block_pocket', { pocket: 1 });
