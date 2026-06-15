@@ -52,7 +52,19 @@ left is human play for *feel/balance* tuning, not correctness.
   also serves the static files (`/` → `PLAY ME.html`).
 
 ## What the 2026-06-12 session changed (user playtest feedback rounds)
-**53 unit tests** + the automated 31-card in-browser playtest pass.
+**56 unit tests** + the automated in-browser card playtest pass. **The card pool
+is now 30** (Mirror removed).
+
+**Feedback round 4 (Move Hole vs Warp, remove Mirror)**
+- **Move Hole no longer reverts a Warp Rail.** Both write `movedPockets[i]`;
+  Move Hole-ing a pocket that was already warped used to drop the `warp` flag,
+  snapping the bent rails back to straight. `move_hole` now preserves an
+  existing warp (rails stay bent and follow the hole). The warpBlocksPocket
+  guard + the bend ghost-preview also fire for a warp-carrying Move Hole.
+  Moving a *different* pocket already left the warp intact.
+- **Mirror card removed** from CARD_POOL (→30) + applier; the left-right flip
+  was stripped from `ball.js`, `drawEffectBadges`, the effects chip, the
+  `clearBallEffects` list, and the SFX case.
 
 **Feedback round 3 (call-your-pocket, fog, cloak)**
 - **Call-your-pocket on the 8** (8-ball/doubles): `state.calledPocket` (serialized);
