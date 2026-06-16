@@ -1,302 +1,150 @@
 # Rack & Ruin — Session Handoff
 
-Last updated: 2026-06-12 (round 3)
+Last updated: 2026-06-12
 
 ## TL;DR
-The full rewrite is implemented and committed on the **`rewrite`** branch.
-`master` is the untouched original baseline (`b7e0e5c`). The game is a playable
-card-battler pool game: a pool-accurate table, real physics, standard rules for
-all four variants, a 30-card sabotage system, online multiplayer plumbing, and
-synthesized audio. **42 unit tests pass** (`npm test`).
+A playable **card-battler pool game**, fully rewritten and committed on the
+**`rewrite`** branch (`master` is the untouched original baseline `b7e0e5c`).
+Pool-accurate table, real physics, standard rules for all four variants, a
+**30-card** sabotage system, jump shots, call-your-pocket on the 8, online
+multiplayer, and synthesized audio + particles. **56 unit tests pass**
+(`npm test`); all 30 cards pass an automated in-browser playtest with no console
+errors; the live 2-client online sync test passes (browser host + scripted
+joiner). Remaining work is **human feel/balance tuning**, not correctness.
 
-2026-06-11 session: **full visual/audio modernization** (UI theme, menu, table /
-ball / cue rendering, particles, richer SFX) and **both big verification gaps
-closed** — the live 2-client online sync test PASSES (browser host + scripted
-joiner over the real server), and all card ids pass an automated in-browser
-playtest (resolve → effect applies → live shot → decay turn, no errors). What's
-left is human play for *feel/balance* tuning, not correctness.
+GitHub remote: `ExKylebur/Rack-and-Ruin` (push with `push-to-github.bat`, or
+`git push origin rewrite`).
 
 ## How to run
-- **Double-click `launch.bat`** → starts the Python server on :8000 and opens the
-  browser. You MUST use the server (ES modules are blocked over `file://`).
-- ⚠️ **Port 8000 conflict:** the SynthRiders mapper also defaults to :8000 (it runs
-  `uvicorn main:app`). If that server is up, `localhost:8000` returns
-  `{"detail":"Not Found"}` (FastAPI 404) and the game won't load. Fix: stop the
-  conflicting server (`Stop-Process` the stray `python ... uvicorn` PID). Both
-  projects can't run on :8000 at once.
+- **`launch.bat`** → starts the Python server on :8000 and opens the browser.
+  You MUST use the server (ES modules are blocked over `file://`).
+- ⚠️ **Port 8000 conflict:** the SynthRiders mapper also defaults to :8000
+  (`uvicorn main:app`). If it's up, `localhost:8000` returns `{"detail":"Not
+  Found"}` and the game won't load — stop the stray `python` PID first. Note a
+  leftover game server from a prior session also squats :8000; `Stop-Process`
+  it before re-launching / before `preview_start`.
 - Tests: `npm test` (Node's built-in runner; no deps).
-- Upload to GitHub: **`push-to-github.bat`** (remote: ExKylebur/Rack-and-Ruin).
-- Preview/verify changes: the project has `.claude/launch.json` (config name
-  `rack-and-ruin`) so the Claude preview tools can serve and screenshot the game.
+- Preview/verify: `.claude/launch.json` config `rack-and-ruin` drives the Claude
+  preview tools (serve + screenshot + eval).
+- Online 2-client re-test: start server, create a room in the browser, then
+  `node tools/online-smoke.mjs <ROOMCODE>`, then rack + foul + play a card.
 
 ## Architecture (all under `src/`, vanilla ES modules, no build step)
 - `geometry.js` — table geometry as pure fns; **relative {u,v} coords** (0..1 of
   play area) so state is resolution-independent. **`cushions(dims, movedPockets)`**
-  builds the table boundary as a **6-vertex polygon** (one vertex per pocket, CW:
-  TL, TM, TR, BR, BM, BL); each edge is a cushion with angled jaw faces that funnel
-  into the pockets. Physics + render share this. `pocketLayout(dims, movedPockets)`
-  returns the 6 pockets (side pockets tagged `side:true`, moved ones `moved:true`).
+  builds the boundary as a **6-vertex polygon** (one vertex per pocket, CW: TL,
+  TM, TR, BR, BM, BL); each edge is a cushion with angled jaw faces funneling into
+  the pockets. `movedPockets[i].warp` bends the two edges meeting that pocket.
+  `pocketLayout(dims, movedPockets)` returns the 6 pockets (`side`/`moved` tags).
+  `warpBlocksPocket(dims, moved, idx, dropRel)` validates a warp can't seal
+  another pocket. Physics + render share all of this.
 - `state.js` — single source of truth + `serializeSnapshot`/`applySnapshot`.
-- `physics.js` — pure sim in a fixed CANON pixel space (so every machine simulates
-  identically). Reads card effects + `movedPockets` via `env`. Emits sound events.
+  Notable serialized fields: `balls`, `movedPockets`, `pocketState`,
+  `activeEffects`, `players[].hand` (card ids), `currentPlayer`, `calledPocket`.
+- `physics.js` — pure sim in a fixed CANON pixel space (every machine simulates
+  identically). **CCD: `step()` slices each frame into `substep()`s** so no ball
+  moves >~0.45·ballR per slice (fixes thin-cut tunneling). Reads card effects +
+  `movedPockets` via `env`; emits sound events carrying {u,v}. `turn.pocketDrops`
+  maps ballNum→pocketIndex (for called-pocket). Jump shots fly via `airStep`
+  (`cue.air`, runtime-only). `freshTurn`, `applyShot(...,jump)`, `makeSim`, `commit`.
 - `rules/` — `index.js` dispatch + `eightball/nineball/cutthroat`. `evaluateTurn`
-  returns `{foul,keepTurn,gameOver,winner,reason,ballInHand,respot,message}` and
-  assigns groups. `commitmentLabel()` powers the per-player UI.
-- `cards/registry.js` (30 ids, STABLE — online snapshots reference them) +
+  returns `{foul,keepTurn,gameOver,winner,reason,ballInHand,respot,message}`,
+  assigns groups, and (8-ball/doubles) requires the 8 to drop in `state.calledPocket`.
+  `commitmentLabel()`, `groupNums()`, `nextPlayer()`.
+- `cards/registry.js` (**30 ids, STABLE** — online snapshots reference them) +
   `cards/effects.js` (pure appliers + `clearBallEffects`/`decayTableEffects`).
 - `online/client.js` — create/join/push/long-poll.
-- `render/{table,ball,aim,effects}.js` — render is a pure function of state.
-- `audio/sfx.js` — `window.SFX` synth; `cardPlayed(id)` routes per-card cues.
-- `app.js` — entry: setup, input, shot loop, card phase, turn flow, online glue.
+- `render/{table,ball,aim,effects,particles}.js` — render is a pure function of
+  state. `effects.js` also owns fog, pick highlights, placement ghost, and
+  `drawCalledPocketUI`. `particles.js` is runtime-only cosmetic juice.
+- `audio/sfx.js` — `window.SFX` synth; `cardPlayed(id)` routes per-card cues;
+  `jump`/`land`/`click` cues.
+- `app.js` — entry: setup, input, shot loop, card phase, turn flow, calling,
+  jump-arming, online glue.
 - `server/multiplayer_server.py` — `ThreadingHTTPServer`; rooms/tokens/long-poll;
-  also serves the static files (`/` → `PLAY ME.html`).
+  serves the static files (`/` → `PLAY ME.html`).
 
-## What the 2026-06-12 session changed (user playtest feedback rounds)
-**56 unit tests** + the automated in-browser card playtest pass. **The card pool
-is now 30** (Mirror removed).
+## Notable mechanics (current behaviour)
+- **Card phase** plays from the right-panel Hand (`#handArea`, no modal): draw →
+  cards badged NEW → click to play (up to `PLAY_PER_TURN`); a `#nowPlaying`
+  banner shows during a table pick. Hand renders as 2-col mini **game cards**
+  (per-card hue via `cardHue(id)`, art zone, type chip, foil shine, playable glow).
+  Drivers: `beginCardPhase`/`playHandCard`/`processCardQueue`/`afterCardResolved`/
+  `endCardPhase`. Playing a card fires `spawnCardFlourishFor` at the effect site.
+- **Call-your-pocket (8-ball/doubles):** when the shooter has cleared their group
+  and the 8 is up, they MUST call a pocket before shooting (click a pocket to
+  call/re-call, click felt to shoot; `needsCall()` gates `beginCharge`+input).
+  `#callPocket` banner + `drawCalledPocketUI` flair. Win only if the 8 drops in
+  `state.calledPocket`; wrong/uncalled/early/foul → opponent wins.
+- **Jump Shot:** `#jumpBtn`/`toggleJump` arms the next shot; the cue flies
+  `power·PA.w·JUMP_RANGE_FRAC(0.55)`, sailing over balls/zones/rails (the counter
+  to a Warp Rail trap). Off the bed = scratch; over a pocket = drop. Aim preview
+  = hop-arc + landing ring (red X = scratch).
+- **Warp Rail** bends the two rails to a dragged pocket (`{u,v,warp:true}`);
+  **Move Hole** is a floating hole, straight rails (`{u,v}`) — UNLESS the pocket
+  is already warped, in which case Move Hole **preserves** the warp (rails follow,
+  don't snap back). Both reject drops onto a ball or that would seal a pocket.
+- **Power bar oscillates** 0→100→0 at constant %/sec (1.4 s/sweep); card clamps
+  reshape the window: Cool Hands 0–25, Roid Rage starts at 75 and sweeps 75–100.
+- **Effect lifetimes:** only rails (bounce/dead) + felt zones (ice/mud) persist;
+  bouncer/bear-trap/portals/crosswind/blocked/shrunk decay via turn counters in
+  `decayTableEffects`. Bear trap is single-use (`sprung`). Ball/cue effects last
+  one shot (`clearBallEffects`).
+- **Fog of War** fully blacks out everything but the aim beam (and passes through
+  a cloaked ball). **Cloak** also hides the aim ghost/cut-line for that ball.
+- **Spin/English** via `#spinDial`; **Drunk** sways aim only (±5°).
 
-**Feedback round 4 (Move Hole vs Warp, remove Mirror)**
-- **Move Hole no longer reverts a Warp Rail.** Both write `movedPockets[i]`;
-  Move Hole-ing a pocket that was already warped used to drop the `warp` flag,
-  snapping the bent rails back to straight. `move_hole` now preserves an
-  existing warp (rails stay bent and follow the hole). The warpBlocksPocket
-  guard + the bend ghost-preview also fire for a warp-carrying Move Hole.
-  Moving a *different* pocket already left the warp intact.
-- **Mirror card removed** from CARD_POOL (→30) + applier; the left-right flip
-  was stripped from `ball.js`, `drawEffectBadges`, the effects chip, the
-  `clearBallEffects` list, and the SFX case.
+## Online safety
+Render == physics geometry (both from `geometry.js`, incl. the warped boundary).
+Shooter simulates then broadcasts the settled snapshot (D2). All gameplay state
+serializes (`movedPockets` incl. `warp`, `pocketState`, `activeEffects`,
+`calledPocket`); `cue.air`/`airTotal`, spin, particles, and sound-event positions
+are **runtime-only** and never serialized. Snapshot round-trip test passes.
 
-**Feedback round 3 (call-your-pocket, fog, cloak)**
-- **Call-your-pocket on the 8** (8-ball/doubles): `state.calledPocket` (serialized);
-  `physics` records `turn.pocketDrops[num] = pocketIndex`; `rules/eightball`
-  only awards the win if the 8 dropped in the called pocket (wrong/uncalled/
-  early/foul → opponent wins). When the current player is on the 8 (group
-  cleared, 8 up) they MUST call before shooting — clicking a pocket calls it
-  (re-callable), clicking felt shoots; `beginCharge` + mousedown/touch gate on
-  `needsCall()`. `#callPocket` banner + status; `drawCalledPocketUI` shows gold
-  pick-me rings pre-call and locked-in flair (rings + inward chevrons + 🎯)
-  with a flourish on lock-in. `calledPocket` clears after the shot resolves and
-  syncs online via the snapshot. Helpers `onEightForCurrent`/`needsCall`/
-  `pocketAt`/`callPocketAt`/`updateCallUI`; `RR.callPocket`/`RR.onEight` hooks.
-- **Fog of War** layer is now fully opaque (was rgba …,0.95) so nothing outside
-  the beam is readable; the beam also passes through a cloaked ball.
-- **Cloak**: `drawAim` skips the cloaked ball, so the ghost/cut-line never
-  betrays its post-contact direction (aim ray passes through it).
-
-**Feedback round 2 (warp rail + power bar)**
-
-**Feedback round 2 (warp rail + power bar)**
-- **Warp blocking guard:** `geometry.warpBlocksPocket` builds the would-be bent
-  boundary and returns the index of any pocket whose mouth a cushion face
-  would cross (threshold = mouth radius; default table min is ~1.1r) or whose
-  mouth the dropped pocket would crowd. `resolvePick` rejects with a toast;
-  the ghost preview paints the bend red + pulses 🚫 on the threatened pocket.
-- **Rail effects follow bends:** `drawRailEffects` now passes
-  `state.movedPockets` to `cushions()` so dead-rail wood / bounce-house rubber
-  hug the warped crest (they drew on the old straight rail line).
-- **Oscillating power bar:** `beginCharge` ping-pongs power through the
-  allowed window at constant %/sec (1.4 s full sweep). Cool Hands → 0–25,
-  Roid Rage → starts instantly at 75, sweeps 75–100. The lo/hi window derives
-  from activeEffects, so future cards can reshape it the same way. applyShot
-  reordered (cool, then roid) so stacked clamps match the bar.
-- Gotcha rediscovered: preview screenshots/evals that await rAF hang when the
-  preview window is occluded — restart the preview server for a fresh window.
-
-**Feedback round 1**
-
-**Gameplay fixes**
-- **CCD anti-tunneling:** `physics.step` slices each frame so no ball moves
-  more than ~0.45·ballR per slice (`substep()`, cap 12). Fixes extreme thin
-  cuts where the cue tunneled past the advertised contact. Tests in
-  `test/jump.test.js`.
-- **Jump Shot** (counter to Warp Rail trapping balls): toggle button under the
-  spin dial (`#jumpBtn`, `toggleJump`). `applyShot(..., jump=true)` sets
-  `cue.air = power * PA.w * JUMP_RANGE_FRAC(0.55)`; airborne balls skip
-  friction/zones/rails/collisions (`airStep` in physics.js), land via distance
-  countdown — off the bed = **scratch**, over a pocket = drop. Aim preview =
-  hop-arc dots + landing ring (red X = will scratch). Airborne render: ball
-  lifts/grows, shadow stays grounded (`ball.js` lift/airT). `land` event ->
-  thud SFX + dust. `air/airTotal` are runtime-only (NOT serialized; snapshots
-  are settled). RR.simShot takes a 4th `jump` arg.
-- **Oil Cue friction +33%** (0.9985 -> 0.998/frame) — stops drifting forever.
-- **Open Pocket gating:** never dealt unless a pocket is blocked
-  (`blockedPocketExists()` filters the draw pool); dead in hand shows disabled.
-
-**Visual round 2** ("cards were dull / effects identical")
-- Hand = 2-col mini game cards (`updateHand` markup + main.css): per-card hue
-  (`cardHue(id)` -> `--card-hue`), art zone w/ watermark icon, type chip, foil
-  shine, pulsing playable glow, NEW ribbon.
-- `spawnCardFlourishFor` (app.js) + `particles.spawnCardFlourish`: shockwave
-  rings, hue sparks, rising card icon at the resolved effect's location.
-- `effects.js` amped (glow/shadowBlur + animation on everything): ice
-  twinkles, mud oozes/pops, bouncer neon rings, portal halos + outer dashed
-  ring, crosswind comet streaks w/ arrowheads, magnet rings collapse into
-  pockets, neon bounce-house rail, cracked dead rail, blocked pocket = red
-  glow + marching hazard ticks, shrunk pocket pulses, badges on glow chips.
-  Idle loop now also animates while pocketState has blocked/shrunk entries.
-
-## What the 2026-06-11 session changed
-All on `rewrite`; verified in-browser (preview tools) + `npm test`. Three commits:
-
-**Visual overhaul part 1 — modern UI + table/ball/cue rendering** (`56557fe`)
-- `src/styles/main.css` rewritten around design tokens (`:root` vars): glass
-  panels, gradient menu hero ("RACK & RUIN / Sabotage Billiards"), modern
-  buttons/toasts/banners, card items as icon-chip rows with a type-coloured
-  strip (blue = ball card, amber = table card). Dead card-modal CSS removed.
-- `PLAY ME.html`: Outfit + Bebas Neue webfonts (graceful offline fallback),
-  menu hero block, title bar restyled; fixed the stray visible "Player 3 Name"
-  label; `updateHand()` in app.js now emits `.card-icon` markup.
-- `render/ball.js`: layered contact shadow, 3-stop body shading, felt bounce
-  light, fresnel rim, sheen + hard glint, crisper stripe band, number decal.
-- `render/table.js`: layered wood grain + brass inlay line, tournament felt
-  with diagonal weave + faint R&R watermark, rail inner shadow onto the cloth,
-  leather/brass pocket collars with inner-lip light, mother-of-pearl diamonds.
-- `render/aim.js`: guide line tints white→gold→red with power and glows; ghost
-  ball + contact crosshair; cut line gets an arrowhead; real tapered cue
-  (blue tip, ferrule, maple shaft, brass joint, wrapped rosewood butt, shadow).
-
-**Visual overhaul part 2 — particles + SFX** (`a05cf04`-ish, see log)
-- `physics.js` events now carry **relative {u,v} positions** (runtime only,
-  never serialized — online unaffected).
-- NEW `render/particles.js`: pocket-drop ring + burst in the ball's colour,
-  rail dust, hard-hit kiss flash, bear-trap sparks, chalk puff on the strike.
-  Self-clocking, 400-particle cap; finishes animating via the idle loop
-  (`particles.alive()` is part of the idle-loop condition). Cleared on new game.
-- `audio/sfx.js`: pocket = leather thunk + wooden return-rattle knocks;
-  scratch = hollow thud; rising C-major win fanfare; soft `click()` wired to
-  buttons / playable cards / spin dial via a delegated listener in app.js.
-
-**Online: live 2-client sync test — PASSES** (`tools/online-smoke.mjs`)
-- Scripted joiner speaks the exact client protocol (join-room, long-poll
-  /api/state, update-state). Verified against a real browser host: rack
-  snapshot sync, turn-lock to seat 1 after a host foul, ball-in-hand crossing,
-  card sabotage (crosswind) visible to the joiner, and the joiner's pushed
-  turn applied live by the host browser. Rerun: start server, host creates a
-  room in the browser, then `node tools/online-smoke.mjs <CODE>`, then host
-  racks + fouls + plays a card.
-- Confirmed known simplification: joiner name not synced (host names win).
-
-**Automated per-card playtest — all pass.** In-browser driver (preview_eval):
-for every id in CARD_POOL → fresh game → force card into hand → soft no-contact
-foul opens the card phase → play it resolving every pick type (ball/pocket/
-rail/place) → assert state changed → full shot with the effect live → another
-shot to run the decay path. 31/31 ok, zero console errors.
-
-## What the 2026-06-08 → 06-10 session changed
-Newest first:
-
-**Warp Rail — bend the rails to follow the hole** (`fc97a16`, user picked "Option A")
-- The boundary polygon's pocket vertex moves when a pocket is warped; the two
-  adjacent rails bend to follow. `geometry.cushions(dims, movedPockets)` checks
-  `movedPockets[i].warp`. With default vertices it reproduces the old axis-aligned
-  table exactly (all cushion tests pass). Physics recomputes faces in CANON when a
-  warp is active (memoised on the shot `env`, threaded via `env.movedPockets`).
-- **Move Hole** sets `movedPockets[i] = {u,v}` (floating hole, rails straight);
-  **Warp Rail** sets `{u,v,warp:true}` (rails bend). Both reject drops onto a ball.
-- The placement ghost previews the bend (dashed cushion lines from the two
-  neighbour pockets to the cursor) in `render/effects.js drawPlacementGhost`.
-- `state.warp` and the old `geometry.warpRail` cushion-ridge are GONE (a dead-end
-  earlier this session: `ff66d6d` ridge → `e142d83` plain relocator → `fc97a16`
-  bend). Warp persists one round like other placed effects.
-
-**Side-pocket capture fix** (`be70624`)
-- Side pockets are recessed behind the rail; the corner-sized capture didn't cover
-  the mouth and `pocketCheck` ran AFTER `railBounce`, so balls rattled off the jaw.
-  Now: `SIDE_POCKET_PULL = 1.45` wider capture for `p.side` pockets, and **`step()`
-  runs `pocketCheck` BEFORE `railBounce`** so a ball that reached the funnel drops.
-  Angled side-pocket window went ~0° → ~13°; corners unaffected.
-
-**Aim precision** (`54e31e5`)
-- `render/aim.js` uses analytic **ray–circle intersection** for ball contact (was
-  discrete 3px stepping that overshot), so the ghost ball rests exactly tangent —
-  no more clipping into the target as you slide the aim. Added a cyan **cut-line**
-  showing the struck ball's direction.
-
-**Effect lifetimes + single-use bear trap + ball-in-hand + CSS fix** (`9f7ec56`)
-- **Lifetimes:** only rails (bounce_house/dead_rail) and felt zones (ice/mud)
-  persist; bouncer/bear-trap/portals clear after one round (turn counters in
-  `cards/effects.js decayTableEffects`).
-- **Bear trap is single-use:** snaps shut on the FIRST ball (`physics.js` sets
-  `effects.bearTrap.sprung`, emits a `beartrap` event), won't catch again, lingers
-  closed until it decays. New snapping-jaws animation + metallic SFX.
-- **Ball-in-hand:** prominent pulsing `#ballInHand` banner over the table +
-  marching-ants/pulsing cue placement ring (`updateBallInHandUI`, `drawCuePlacement`).
-- **Root-cause CSS fix:** there was no general `.hidden` rule (only
-  `.overlay-base.hidden`), so the card-phase chrome and new banners never actually
-  hid. Added `.hidden { display:none !important; }`. (Removed the confusing
-  per-turn "Drew: ..." toast too — the hand's NEW badges already show the draw.)
-
-**Card flair: themed visuals + sounds; real bear trap** (`8afae31`)
-- `render/effects.js drawEffects` rewritten with richer (mostly opaque, balls draw
-  on top) art: ice sheen, muddy bubbling mud, glossy bouncer, swirling portals,
-  crosswind breeze streaks, magnet pocket-field arcs, and **rail treatments**
-  (bounce_house = vibrating rubber band, dead_rail = rotted segmented wood) drawn
-  over the cushions. Bear trap is now real sprung steel jaws (was a 🪤 emoji).
-- New `drawEffectBadges` (over the balls): **turbo lightning bolt** on the cue,
-  plus roid/cool/oil/reverse/sticky/drunk glyphs and heavy/light weight markers.
-- The idle loop animates these. `audio/sfx.js cardPlayed` adds per-card cues
-  (zap/whoosh/freeze/squelch/hum/drip + more).
-
-**Card phase plays from the Hand; player icon = solids/stripes** (`8117dc3`,
-`5b2332a`)
-- The full-screen card modal is GONE. Drawn cards land in the right-panel
-  **`#handArea`** (badged NEW); click a card there to play it, one at a time, up to
-  `PLAY_PER_TURN`. While a card's table pick resolves, a **"▶ Playing &lt;card&gt; —
-  &lt;prompt&gt;"** banner (`#nowPlaying`) shows over the table and the hand locks.
-  Unplayed cards persist. Drivers in `app.js`: `beginCardPhase` / `playHandCard` /
-  `updateCardPhaseUI` / `afterCardResolved` / `endCardPhase`; `phaseNewIds` is the
-  NEW set. The old `#cardOverlay` modal + its `.card-grid`/`.card-pick-item` CSS
-  were removed (some grid CSS may still be dead — safe to delete if found).
-- **Player ball icon** by each name shows their 8-ball group: solid coloured ball
-  for solids, white ball + coloured band for stripes (`updatePlayers`).
-
-**The original 11-item backlog** (`1bcbd1f` items 6–11, `c351978` 1–3, `69fe309`
-5, `c12b6a7` 4): card UX (now superseded by the Hand redesign above), Spin/English
-(`#spinDial`, `drawSpinMarker`, post-contact impulse in `physics.js`), placement
-ghost, side-pocket diamonds removed, cue stick lengthened (`aim.js len2=base*22`),
-moved pocket captures, Fog of War sight beam, Drunk = aim-only ±5°, Shrink/Block
-reshape the pocket opening.
-
-## Online safety (checked)
-No new **serialized** state was added this session. `movedPockets` (incl. the
-`warp` flag), `pocketState`, and `activeEffects` all serialize. Spin and the
-bear-trap `sprung` flag live within a shot / the settled snapshot already carries
-`activeEffects`. The snapshot round-trip test still passes. So online sync is
-unaffected — but it has STILL never been run with two real browsers (see gaps).
-
-## NOT yet verified / known gaps (start here next session)
-1. **Human feel/balance pass.** Mechanics of every card are machine-verified
-   (see above), but nothing substitutes for playing full games: tune card
-   strength, zone sizes, SFX levels, particle amounts.
-2. **Two real browsers / two machines.** The 2-client test used a real browser
-   host + a protocol-exact scripted joiner; a second human browser via the
-   invite link should behave identically but hasn't been done end-to-end
-   (incl. win screen on both sides).
-3. **rAF throttling gotcha** — the live shot loop uses `requestAnimationFrame`,
-   paused when the tab is unfocused. For headless/debug use the `window.RR` hooks.
-4. Minor polish: phone-aim is relative-to-drag (could aim from the cue);
-   doubles/cutthroat not selectable online (by design). Webfonts (Outfit/Bebas
-   Neue) load from Google Fonts — offline play falls back to system fonts.
+## NOT yet verified / known gaps (start here)
+1. **Human feel/balance pass** — card strength, zone sizes, jump range
+   (`JUMP_RANGE_FRAC`), SFX levels, particle amounts. The mechanics are
+   machine-verified; the *fun* isn't.
+2. **Two real browsers / machines** — the online test used a real host + a
+   protocol-exact scripted joiner; a second human browser via the invite link
+   (incl. the win screen on both sides) hasn't been done end-to-end. Known
+   simplification: joiner name not synced (host names win).
+3. **rAF / preview gotcha** — the shot loop uses `requestAnimationFrame` (paused
+   when unfocused); preview screenshots/evals that await rAF can hang when the
+   preview window is occluded. Restart the preview server for a fresh window;
+   use `window.RR` hooks for headless work.
+4. Minor: phone-aim is relative-to-drag; doubles/cutthroat not selectable online
+   (by design); webfonts (Outfit/Bebas Neue) fall back to system fonts offline.
 
 ## Dev hooks (browser console, `window.RR`)
 `state`, `render()`, `start()`, `shoot(power,angle)`,
-`simShot(power,angle[,spin])` (headless full shot, runs the rules),
-**`simBall(num,power,angle)`** (headless PURE physics, no rules — returns
-`{pocketed,restU,restV}`; great for pocket-capture testing),
-`isMoving()`, `pick()`, `queue()`, `clickRel(u,v)`, `moveHole(i,u,v)`,
-`setSize(num,size)`, `refreshPanels()`, `playHand(slot)`, `cardPhaseActive()`,
-`selected()`.
+`simShot(power,angle[,spin,jump])` (headless full shot, runs the rules),
+`simBall(num,power,angle)` (headless PURE physics, no rules → `{pocketed,restU,
+restV,frames}`), `isMoving()`, `moveHole(i,u,v)`, `setSize(num,size)`,
+`refreshPanels()`, `pick()`, `queue()`, `cardPhaseActive()`, `playHand(slot)`,
+`clickRel(u,v)` (resolves a pending pick / places the cue), `onEight()`,
+`callPocket(i)`, `calledPocket()`.
 
 ## Working conventions for new cards
-Applier in `cards/effects.js` (mutating `activeEffects`/`balls`/`movedPockets`/
-`pocketState`; give placed/zone effects a turn counter if they shouldn't persist) +
-a catalogue entry with `interactions` in `cards/registry.js` (ball/pocket/rail/place
-picks). Any new shared geometry goes in `geometry.js` as a pure fn so physics and
-render agree. Visuals: zones/rails in `drawEffects` (under balls), cue/ball glyphs
-in `drawEffectBadges` (over balls), a `place`-pick preview in `drawPlacementGhost`.
-Sound: a case in `audio/sfx.js cardPlayed`. Cover physics with a `node --test`.
+Applier in `cards/effects.js` (mutate `activeEffects`/`balls`/`movedPockets`/
+`pocketState`; add a turn counter to `decayTableEffects` if it shouldn't persist)
++ a catalogue entry with `interactions` in `cards/registry.js`
+(ball/pocket/rail/place picks). Shared geometry → a pure fn in `geometry.js` so
+physics and render agree. Visuals: zones/rails in `drawEffects` (under balls),
+glyphs in `drawEffectBadges` (over balls), a `place`-pick preview in
+`drawPlacementGhost`. Sound: a case in `audio/sfx.js cardPlayed`. Cover with a
+`node --test`. **Card ids are STABLE** (online compatibility) — never rename one;
+to retire a card, remove it from `CARD_POOL` so it's never dealt.
 
 ## Decisions locked
-- D1: relative {u,v} coords. D2: shooter simulates, broadcasts the settled snapshot.
-- Card ids are stable (online compatibility). Render == physics geometry (both
-  derive from `geometry.js`, including the warped boundary).
+- D1: relative {u,v} coords (resolution-independent). D2: shooter simulates,
+  broadcasts the settled snapshot. Card ids stable. Render == physics geometry.
+
+## History
+Earlier sessions (chronological detail) are in the git log — `git log --oneline`
+on `rewrite`. Highlights: the original rewrite + 11-item card/table backlog;
+Warp Rail bend + side-pocket capture + analytic aim; visual/audio modernization
+(theme, table/ball/cue, particles, SFX) and the online + per-card verification;
+then four user-feedback rounds — CCD/jump/oil/open-pocket; warp-block guard +
+rail-follows-bend + oscillating power bar; call-your-pocket + opaque fog + cloak
+cut-line; and Move-Hole-keeps-warp + Mirror card removed.
